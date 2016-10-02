@@ -1,0 +1,152 @@
+use std::cell::RefCell;
+use std::fs::{File, create_dir};
+use std::io;
+use std::marker;
+use std::ops::Deref;
+use std::path::Path;
+use std::rc::Rc;
+use std::sync::Mutex;
+use tempfile;
+
+pub trait FileFactory {
+    fn new(&self) -> io::Result<File>;
+}
+
+pub struct ReadFileFactory {
+    pub path: String,
+}
+
+impl FileFactory for ReadFileFactory {
+    fn new(&self) -> io::Result<File> {
+        File::open(&self.path)
+    }
+}
+
+pub struct TmpFileFactory {
+    base: String,
+}
+
+impl TmpFileFactory {
+    pub fn base(base: String) -> io::Result<TmpFileFactory> {
+        {
+            if ! Path::new(&base).exists() {
+                try!(create_dir(&base));
+            }
+        }
+        Ok(TmpFileFactory { base: base })
+    }
+}
+
+impl FileFactory for TmpFileFactory {
+    fn new(&self) -> io::Result<File> {
+        tempfile::tempfile_in(&self.base)
+    }
+}
+
+pub struct FilePool<F: FileFactory> {
+    capacity: usize,
+    files: Mutex<Vec<Rc<RefCell<File>>>>,
+    factory: F,
+}
+
+impl<F: FileFactory> FilePool<F> {
+    pub fn new(factory: F, capacity: usize) -> FilePool<F> {
+        FilePool { capacity: capacity, factory: factory,
+                   files: Mutex::new(vec![]) }
+    }
+
+    pub fn get<'pool>(&'pool self) -> io::Result<PooledFilePointer<'pool, F>> {
+        let mut files = self.files.lock().unwrap();
+        let filerc = match files.pop() {
+            Some(filerc) => filerc,
+            None       => Rc::new(RefCell::new(
+                try!(self.factory.new())
+            )),
+        };
+        Ok(PooledFilePointer {file: filerc, pool: self})
+    }
+
+    pub fn put(&self, filerc: Rc<RefCell<File>>) {
+        let mut files = self.files.lock().unwrap();
+        if files.len() < self.capacity {
+            files.push(filerc);
+        }
+    }
+}
+
+unsafe impl<F: FileFactory> marker::Sync for FilePool<F> {}
+unsafe impl<F: FileFactory> marker::Send for FilePool<F> {}
+
+pub struct PooledFilePointer<'pool, F: FileFactory + 'pool> {
+    file: Rc<RefCell<File>>,
+    pool: &'pool FilePool<F>,
+}
+
+impl<'pool, F: FileFactory + 'pool> Deref for PooledFilePointer<'pool, F> {
+    type Target = Rc<RefCell<File>>;
+
+    fn deref<'fptr>(&'fptr self) -> &'fptr Rc<RefCell<File>> {
+        &self.file
+    }
+}
+
+impl<'pool, F: FileFactory + 'pool> Drop for PooledFilePointer<'pool, F> {
+    fn drop(&mut self) {
+        self.pool.put(self.file.clone());
+    }
+}
+
+// ======================================================================
+
+#[cfg(test)]
+mod tests {
+
+    extern crate tempdir;
+    pub use tempdir::TempDir;
+    pub use super::*;
+    pub use std::fs::File;
+    pub use std::io;
+    pub use std::io::prelude::*;
+    pub use std::sync;
+    pub use std::thread;
+    
+    describe! filepool {
+
+        before_each {
+            let tmp_dir = TempDir::new("example").unwrap();
+        }
+
+        it "works!" {
+            let sample = b"data";
+            let path = String::from(
+                tmp_dir.path().join("data").to_str().unwrap());
+            { File::create(&path).unwrap().write_all(sample).unwrap(); }
+            
+            let pool = sync::Arc::new(
+                FilePool::new(ReadFileFactory { path: path }, 2));
+            let (t, r) = sync::mpsc::channel();
+
+            let count = 8;
+            
+            for i in 0 .. count {
+                let tt = t.clone();
+                let tpool = pool.clone();
+                thread::spawn(move || {
+                    let p = tpool.get().unwrap();
+                    let mut file = p.borrow_mut();
+                    let mut buf = [0u8; 4];
+                    file.seek(io::SeekFrom::Start(0)).unwrap();
+                    file.read_exact(&mut buf).unwrap();
+                    tt.send(buf);
+                });
+            }
+
+            for i in 0 .. count {
+                assert_eq!(&r.recv().unwrap(), sample);
+            }
+
+        }
+
+
+    }
+}

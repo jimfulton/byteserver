@@ -1,0 +1,18 @@
+[package]
+name = "byteserver"
+version = "0.1.0"
+authors = ["Jim Fulton <jim@zope.com>"]
+
+[dependencies]
+byteorder = "*"
+itertools = "*"
+memmap = "*"
+tempdir = "*"
+tempfile = "*"
+error-chain = "*"
+
+[dev-dependencies]
+stainless = "*"
+
+[profile.release]
+debug = true
