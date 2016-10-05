@@ -8,6 +8,7 @@ use super::records;
 
 static PADDING24: [u8; 24] = [0u8; 24]; 
 
+#[derive(Debug)]
 pub struct Transaction<'store> {
     id: Tid, // internal temporary tid
     file: pool::PooledFilePointer<'store, pool::TmpFileFactory>,
@@ -85,6 +86,16 @@ impl<'store, 't> Transaction<'store> {
 
 }
 
+impl<'store> std::cmp::PartialEq for Transaction<'store> {
+    fn eq(&self, other: &Transaction) -> bool { self.id == other.id }
+} 
+
+impl<'store> std::hash::Hash for Transaction<'store> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.id.hash(state);
+    }
+}
+
 type TransactionIteratorItem = io::Result<(Oid, Bytes)>;
 
 pub struct TransactionIterator<'t> {
@@ -143,3 +154,38 @@ impl<'t> std::iter::Iterator for TransactionIterator<'t> {
     }
 }
 
+
+// ======================================================================
+
+#[cfg(test)]
+mod tests {
+
+    use super::*;
+    use super::super::tid;
+    use super::super::pool;
+    use std::hash::{Hash, SipHasher, Hasher};
+
+    #[test]
+    fn test_hash_eq() {
+        let tid1 = tid::now_tid();
+        let tid2 = tid::later_than(tid1, tid1);
+        let f = pool::TmpFileFactory::base(String::from(".")).unwrap();
+        let pool = pool::FilePool::new(f, 3);
+        let t11 = Transaction::begin(pool.get().unwrap(),
+                                     tid1, b"q", b"w", b"e").unwrap();
+        let t21 = Transaction::begin(pool.get().unwrap(),
+                                     tid2, b"r", b"t", b"y").unwrap();
+        let t12 = Transaction::begin(pool.get().unwrap(),
+                                     tid1, b"u", b"i", b"o").unwrap();
+
+        assert_eq!(t11, t12); assert!(t11 != t21);
+
+        fn hash(v: &Transaction) -> u64 {
+            let mut hasher = SipHasher::new();
+            v.hash(&mut hasher);
+            hasher.finish()
+        }
+        assert_eq!(hash(&t11), hash(&t12));
+        assert!(hash(&t11) != hash(&t21));
+    }
+}

@@ -12,6 +12,7 @@ pub trait FileFactory {
     fn new(&self) -> io::Result<File>;
 }
 
+#[derive(Debug)]
 pub struct ReadFileFactory {
     pub path: String,
 }
@@ -22,6 +23,7 @@ impl FileFactory for ReadFileFactory {
     }
 }
 
+#[derive(Debug)]
 pub struct TmpFileFactory {
     base: String,
 }
@@ -43,6 +45,7 @@ impl FileFactory for TmpFileFactory {
     }
 }
 
+#[derive(Debug)]
 pub struct FilePool<F: FileFactory> {
     capacity: usize,
     files: Mutex<Vec<Rc<RefCell<File>>>>,
@@ -77,6 +80,7 @@ impl<F: FileFactory> FilePool<F> {
 unsafe impl<F: FileFactory> marker::Sync for FilePool<F> {}
 unsafe impl<F: FileFactory> marker::Send for FilePool<F> {}
 
+#[derive(Debug)]
 pub struct PooledFilePointer<'pool, F: FileFactory + 'pool> {
     file: Rc<RefCell<File>>,
     pool: &'pool FilePool<F>,
