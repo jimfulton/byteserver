@@ -7,12 +7,14 @@ mod errors;
 mod index;
 mod pool;
 mod records;
+mod tid;
 mod transaction;
 
 use std::fs::OpenOptions;
+use std::sync::Mutex;
 
-use self::util::*;
 use self::errors::*;
+use self::util::*;
 
 static INDEX_SUFFIX: &'static str = ".index";
 
@@ -33,12 +35,13 @@ pub struct FileStorage {
     index: index::Index,
     readers: pool::FilePool<pool::ReadFileFactory>,
     tmps: pool::FilePool<pool::TmpFileFactory>,
+    last_tid: Mutex<Tid>,
     // TODO header: FileHeader,
 }
 
 impl FileStorage {
 
-    fn new(path: String, file: File, index: index::Index)
+    fn new(path: String, file: File, index: index::Index, last_tid: Tid)
            -> io::Result<FileStorage> {
         Ok(FileStorage {
             readers: pool::FilePool::new(
@@ -46,6 +49,7 @@ impl FileStorage {
             tmps: pool::FilePool::new(
                 try!(pool::TmpFileFactory::base(path.clone() + ".tmp")), 22),
             path: path, file: file, index: index,
+            last_tid: Mutex::new(last_tid),
         })
     }
 
@@ -56,19 +60,19 @@ impl FileStorage {
         let size = try!(file.metadata()).len();
         if size == 0 {
             try!(records::FileHeader::new().write(&mut file));
-            FileStorage::new(path, file, index::Index::new())
+            FileStorage::new(path, file, index::Index::new(), Z64)
         }
         else {
             records::FileHeader::read(&mut file); // TODO use header info
-            let index = try!(FileStorage::load_index(
+            let (index, last_tid) = try!(FileStorage::load_index(
                 &(path.clone() + INDEX_SUFFIX), &mut file, size));
-            FileStorage::new(path, file, index)
+            FileStorage::new(path, file, index, last_tid)
         }
     }
 
     fn load_index(path: &str, mut file: &File, size: u64)
-                  -> io::Result<index::Index> {
-        let (mut index, segment_size, start, end) =
+                  -> io::Result<(index::Index, Tid)> {
+        let (mut index, segment_size, start, mut end) =
             try!(index::load_index(path));
             
         io_assert!(size >= segment_size, "Index bad segment length");
@@ -86,6 +90,8 @@ impl FileStorage {
                         let header = try!(
                             records::TransactionHeader::read(&mut reader));
                         header.update_index(&mut reader, &mut index);
+                        assert!(header.id > end);
+                        end = header.id;
                     },
                     m if m == PADDING_MARKER => {
                         let length = try!(reader.read_u64::<LittleEndian>());
@@ -98,9 +104,15 @@ impl FileStorage {
                 }
             }
         }
-        Ok(index)
+        Ok((index, end))
     }
 
+    fn new_tid(&self) -> Tid {
+        let mut last_tid = self.last_tid.lock().unwrap();
+        *last_tid = tid::later_than(tid::now_tid(), *last_tid);
+        *last_tid
+    }
+    
     fn lookup_pos(&self, oid: &Oid) -> Option<u64> {
         // TODO: index mutex
         self.index.get(oid).map(| pos | *pos)
@@ -167,7 +179,7 @@ impl FileStorage {
     fn tpc_begin(&self, user: &[u8], desc: &[u8], ext: &[u8])
                  -> io::Result<transaction::Transaction> {
         transaction::Transaction::begin(
-            try!(self.tmps.get()), user, desc, ext)
+            try!(self.tmps.get()), self.new_tid(), user, desc, ext)
             
     }
 

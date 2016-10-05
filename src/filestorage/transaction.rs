@@ -9,6 +9,7 @@ use super::records;
 static PADDING24: [u8; 24] = [0u8; 24]; 
 
 pub struct Transaction<'store> {
+    id: Tid, // internal temporary tid
     file: pool::PooledFilePointer<'store, pool::TmpFileFactory>,
     writer: io::BufWriter<File>,
     save_length: u64,
@@ -19,7 +20,7 @@ pub struct Transaction<'store> {
 impl<'store, 't> Transaction<'store> {
 
     pub fn begin(file: pool::PooledFilePointer<'store, pool::TmpFileFactory>,
-                 user: &[u8], desc: &[u8], ext: &[u8])
+                 id: Tid, user: &[u8], desc: &[u8], ext: &[u8])
                  -> io::Result<Transaction<'store>> {
         let mut writer = io::BufWriter::new(try!(file.borrow().try_clone()));
         try!(writer.write_u16::<LittleEndian>(user.len() as u16));
@@ -32,7 +33,7 @@ impl<'store, 't> Transaction<'store> {
             user.len() as u64 + desc.len() as u64 + ext.len() as u64;
         Ok(Transaction {
             file: file, writer: writer, index: Index::new(),
-            length: length, save_length: length}
+            id: id, length: length, save_length: length}
         )
     }
 

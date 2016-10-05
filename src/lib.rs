@@ -6,6 +6,7 @@
 extern crate byteorder;
 extern crate tempdir;
 extern crate tempfile;
+extern crate time;
 
 #[macro_use]
 extern crate error_chain;

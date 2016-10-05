@@ -5,11 +5,12 @@ authors = ["Jim Fulton <jim@zope.com>"]
 
 [dependencies]
 byteorder = "*"
+error-chain = "*"
 itertools = "*"
 memmap = "*"
 tempdir = "*"
 tempfile = "*"
-error-chain = "*"
+time = "*"
 
 [dev-dependencies]
 stainless = "*"

@@ -54,12 +54,12 @@ impl FileHeader {
 }
 
 pub struct TransactionHeader {
-    length: u64,
-    id: Tid,
-    ndata: u32,
-    luser: u16,
-    ldesc: u16,
-    lext: u32,
+    pub length: u64,
+    pub id: Tid,
+    pub ndata: u32,
+    pub luser: u16,
+    pub ldesc: u16,
+    pub lext: u32,
 }
 pub const TRANSACTION_HEADER_LENGTH: u64 = 28;
 
