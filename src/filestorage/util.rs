@@ -20,6 +20,11 @@ pub static TRANSACTION_MARKER: &'static [u8] = b"TTTT";
 pub static PADDING_MARKER: &'static [u8] = b"PPPP";
 
 pub static Z64: [u8; 8] = [0u8; 8];
+pub fn p64(i: u64) -> [u8; 8] {
+    let mut r = [0u8; 8];
+    LittleEndian::write_u64(&mut r, i);
+    r
+}
 
 pub fn io_error<T>(message: &str) -> io::Result<T> {
     Err(io::Error::new(io::ErrorKind::Other, message))
