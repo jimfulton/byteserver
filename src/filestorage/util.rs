@@ -3,6 +3,9 @@ pub use std::io;
 pub use std::io::prelude::*;
 pub use std::fs::File;
 
+use std::cell::RefCell;
+use std::sync::Arc;
+
 #[macro_export]
 macro_rules! io_assert {
     ($cond: expr, $msg: expr ) => (
@@ -70,4 +73,10 @@ pub fn read8(reader: &mut io::Read) -> io::Result<[u8; 8]> {
     let mut r = [0u8; 8];
     try!(reader.read_exact(&mut r));
     Ok::<[u8; 8], io::Error>(r)
+}
+
+pub type Ob<T> = Arc<RefCell<T>>;
+
+pub fn new_ob<T>(v: T) -> Ob<T> {
+    Arc::new(RefCell::new(v))
 }
