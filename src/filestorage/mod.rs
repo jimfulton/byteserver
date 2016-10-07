@@ -5,6 +5,7 @@ mod util;
 
 mod errors;
 mod index;
+mod lock;
 mod pool;
 mod records;
 mod tid;

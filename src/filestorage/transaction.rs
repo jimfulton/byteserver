@@ -10,7 +10,7 @@ static PADDING24: [u8; 24] = [0u8; 24];
 
 #[derive(Debug)]
 pub struct Transaction<'store> {
-    id: Tid, // internal temporary tid
+    pub id: Tid, // internal temporary tid
     file: pool::PooledFilePointer<'store, pool::TmpFileFactory>,
     writer: io::BufWriter<File>,
     save_length: u64,
@@ -75,6 +75,8 @@ impl<'store, 't> Transaction<'store> {
         try!(io::copy(&mut *source, &mut writer));
         Ok(())
     }
+
+    pub fn vote_locked(&mut self) {}
 
     pub fn saved(&'t self) -> Result<TransactionIterator<'t>> {
         Ok(TransactionIterator {
