@@ -1,17 +1,15 @@
+use std::boxed::Box;
 use std::collections::vec_deque::VecDeque;
 use std::collections::{HashMap, HashSet};
+use std::ops::Fn;
 
 use super::util::*;
 
-pub trait Locker {
-    fn lock_id(&self) -> Tid;
-    fn locked(&mut self);
-}
-
 pub struct Locking {
-    locker: Ob<Locker>,
+    id: Tid,
     want: Vec<Oid>,
     got: Vec<Oid>,
+    locked: Box<Fn()>,
 }
     
 pub struct LockManager {
@@ -30,14 +28,14 @@ impl LockManager {
         }
     }
 
-    pub fn lock(&mut self, locker: Ob<Locker>, want: Vec<Oid>) {
-        self.lock_waiting(Locking { locker: locker, want: want, got: vec![] });
+    pub fn lock(&mut self, id: Tid, want: Vec<Oid>, locked: Box<Fn()>) {
+        self.lock_waiting(
+            Locking { id: id, want: want, got: vec![], locked: locked });
     }
 
     fn lock_waiting(&mut self, mut locking: Locking) {
-        let id = locking.locker.borrow().lock_id();
+        let id = locking.id;
         { // Limit lifetime of locker borrow below :(
-            let mut locker = locking.locker.borrow_mut();
             let mut want = &mut locking.want;
             let mut got =  &mut locking.got;
             while ! want.is_empty() {
@@ -59,7 +57,7 @@ impl LockManager {
                 }
             }
             if want.is_empty() {
-                locker.locked()
+                (*locking.locked)()
             }
         }
         self.locking.insert(id, locking);
@@ -98,15 +96,22 @@ mod tests {
     use super::super::util::*;
 
     struct TestLocker { id: Tid, pub is_locked: bool }
-    impl Locker for TestLocker {
-        fn lock_id(&self) -> Tid { self.id }
+    impl TestLocker {
         fn locked(&mut self) { self.is_locked = true; }
     }
     fn newt(id: u64) -> Ob<TestLocker> {
         new_ob(TestLocker {id: p64(id), is_locked: false})
     }
-    fn oids(v: Vec<u64>) -> Vec<Tid> {
+    fn oids(v: Vec<u64>) -> Vec<Oid> {
         v.iter().map(| i | p64(*i)).collect::<Vec<Tid>>()
+    }
+    fn lock(lm: &mut LockManager, locker: Ob<TestLocker>, oids: Vec<u64>) {
+        let id = locker.borrow().id;
+        lm.lock(id,
+                oids.iter().map(| i | p64(*i)).collect::<Vec<Oid>>(),
+                Box::new(move || locker.borrow_mut().locked()),
+                )
+
     }
     
     #[test]
@@ -114,22 +119,22 @@ mod tests {
         let mut lm = LockManager::new();
         
         let l1_123 = newt(1);
-        lm.lock(l1_123.clone(), oids(vec![1, 2, 3]));
+        lock(&mut lm, l1_123.clone(), vec![1, 2, 3]);
         assert!(l1_123.borrow().is_locked);
 
         let l2_12 = newt(2);
         let l3_12 = newt(3);
         let l4_3 = newt(4);
-        lm.lock(l2_12.clone(), oids(vec![1, 2]));
-        lm.lock(l3_12.clone(), oids(vec![1, 2]));
-        lm.lock(l4_3.clone(), oids(vec![3]));
+        lock(&mut lm, l2_12.clone(), vec![1, 2]);
+        lock(&mut lm, l3_12.clone(), vec![1, 2]);
+        lock(&mut lm, l4_3.clone(), vec![3]);
         assert!(  l1_123.borrow().is_locked);
         assert!(! l2_12.borrow().is_locked);
         assert!(! l3_12.borrow().is_locked);
         assert!(! l4_3.borrow().is_locked);
 
         let l5_4 = newt(5);
-        lm.lock(l5_4.clone(), oids(vec![4]));
+        lock(&mut lm, l5_4.clone(), vec![4]);
         assert!(  l1_123.borrow().is_locked);
         assert!(! l2_12.borrow().is_locked);
         assert!(! l3_12.borrow().is_locked);
