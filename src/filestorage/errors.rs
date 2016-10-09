@@ -8,7 +8,7 @@ error_chain! {
         
         POSKeyError(oid: [u8; 8]) {
             description("ZODB.POSException.POSKeyError")
-            display("No sush oid: {:?}", oid)
+            display("No such oid: {:?}", oid)
         }
     }
 }
