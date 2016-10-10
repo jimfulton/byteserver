@@ -45,11 +45,13 @@ impl FileFactory for TmpFileFactory {
     }
 }
 
+pub type TmpFilePointer<'store> = PooledFilePointer<'store, TmpFileFactory>;
+
 #[derive(Debug)]
 pub struct FilePool<F: FileFactory> {
-    capacity: usize,
+    capacity: usize, // Doesn't change
     files: Mutex<Vec<Rc<RefCell<File>>>>,
-    factory: F,
+    factory: F, // Doesn't change
 }
 
 impl<F: FileFactory> FilePool<F> {

@@ -12,7 +12,7 @@ mod tid;
 mod transaction;
 
 use std::fs::OpenOptions;
-use std::sync::Mutex;
+use std::collections::VecDeque;
 
 use self::errors::*;
 use self::util::*;
@@ -30,31 +30,37 @@ pub struct Conflict {
     data: Bytes,
 }
 
-pub struct FileStorage {
+pub struct FileStorage<'store> {
     path: String,
-    file: File,
-    index: index::Index,
+    file: Mutex<File>,
+    index: Mutex<index::Index>,
     readers: pool::FilePool<pool::ReadFileFactory>,
     tmps: pool::FilePool<pool::TmpFileFactory>,
     last_tid: Mutex<Tid>,
+    locker: Mutex<lock::LockManager>,
+    voted: Mutex<VecDeque<transaction::TransactionM<'store>>>,
     // TODO header: FileHeader,
 }
 
-impl FileStorage {
+impl<'store> FileStorage<'store> {
 
     fn new(path: String, file: File, index: index::Index, last_tid: Tid)
-           -> io::Result<FileStorage> {
+           -> io::Result<FileStorage<'store>> {
         Ok(FileStorage {
             readers: pool::FilePool::new(
                 pool::ReadFileFactory { path: path.clone() }, 9),
             tmps: pool::FilePool::new(
                 try!(pool::TmpFileFactory::base(path.clone() + ".tmp")), 22),
-            path: path, file: file, index: index,
+            path: path,
+            file: Mutex::new(file),
+            index: Mutex::new(index),
             last_tid: Mutex::new(last_tid),
+            locker: Mutex::new(lock::LockManager::new()),
+            voted: Mutex::new(VecDeque::new()),
         })
     }
 
-    fn open(path: String) -> io::Result<FileStorage> {
+    fn open(path: String) -> io::Result<FileStorage<'store>> {
         let mut file = try!(OpenOptions::new()
                             .read(true).write(true).create(true)
                             .open(&path));
@@ -115,8 +121,8 @@ impl FileStorage {
     }
     
     fn lookup_pos(&self, oid: &Oid) -> Option<u64> {
-        // TODO: index mutex
-        self.index.get(oid).map(| pos | *pos)
+        let index = self.index.lock().unwrap();
+        index.get(oid).map(| pos | *pos)
     }
 
     fn load_before(&self, oid: Oid, tid: &Tid) -> Result<LoadBeforeResult> {
@@ -150,61 +156,122 @@ impl FileStorage {
         }
     }
 
-    fn store(&mut self, oid: Oid, tid: Tid, serial: Tid, data: Bytes,
-             transaction: &mut transaction::Transaction)
-             -> Result<Option<Conflict>> {
+    fn lock(&self, transaction: &transaction::TransactionM, locked: Box<Fn()>)
+            -> Result<()> {
+        let (tid, oids) = try!(transaction.lock().unwrap().lock_data());
+        let mut locker = self.locker.lock().unwrap();
+        locker.lock(tid, oids, locked);
+        Ok(())
+    }
 
-        let mut previous = 0u64;
-        match self.lookup_pos(&oid) {
-            Some(pos) => {
-                try!(self.file.seek(io::SeekFrom::Start(pos+12))
-                     .chain_err(|| "Seeking to serial"));
-                let committed = try!(read8(&mut self.file)
-                                     .chain_err(|| "Reading serial"));
-                if committed != serial {
-                    return Ok(Some(Conflict { oid: oid, data: data,
-                                              serials: (serial, committed) }));
-                }
-                previous = pos;
-            },
-            None => {
-                if serial != Z64 {
-                    return Err(ErrorKind::POSKeyError(oid).into());
+    fn stage(&self, transaction: &transaction::TransactionM<'store>)
+             -> Result<Vec<Conflict>> {
+
+        let mut trans = transaction.lock().unwrap();
+        
+        // Check for conflicts
+        let oid_serials = {
+            let mut oid_serials: Vec<(Oid, Tid)> = vec![];
+            for r in try!(trans.serials().chain_err(|| "transaction serials")) {
+                oid_serials.push(try!(r.chain_err(|| "transaction serial")));
+            };
+            oid_serials
+        };
+        let oid_serial_pos = {
+            let index = self.index.lock().unwrap();
+            oid_serials.iter().map(
+                | t | {
+                    let (oid, serial) = *t;
+                    (oid, serial, index.get(&oid).map(| r | r.clone()))
+                })
+                .collect::<Vec<(Oid, Tid, Option<u64>)>>()
+        };
+        let mut conflicts: Vec<Conflict> = vec![];
+        let p = try!(self.readers.get().chain_err(|| "getting reader"));
+        let mut file = p.borrow_mut();
+        for (oid, serial, posop) in oid_serial_pos {
+            match posop {
+                Some(pos) => {
+                    try!(file.seek(io::SeekFrom::Start(pos+12))
+                         .chain_err(|| "Seeking to serial"));
+                    let committed = try!(read8(&mut *file)
+                                         .chain_err(|| "Reading serial"));
+                    if committed != serial {
+                        let data = try!(trans.get_data(&oid));
+                        conflicts.push(
+                            Conflict { oid: oid, data: data,
+                                       serials: (serial, committed)
+                            });
+                    }
+                    try!(trans.set_previous(&oid, pos));
+                },
+                None => {
+                    if serial != Z64 {
+                        return Err(ErrorKind::POSKeyError(oid).into());
+                    }
                 }
             }
         }
-        transaction.write(&oid, &tid, previous, &data);
-        Ok(None)
-    }
 
-    fn tpc_begin(&self, user: &[u8], desc: &[u8], ext: &[u8])
-                 -> io::Result<transaction::Transaction> {
-        transaction::Transaction::begin(
-            try!(self.tmps.get()), self.new_tid(), user, desc, ext)
+        if conflicts.len() == 0 {
+            try!(trans.pack().chain_err(|| "trans pack"));
+            let mut voted = self.voted.lock().unwrap();
+            let mut file = self.file.lock().unwrap();
+            let tid = self.new_tid();
+            let pos = try!(file.seek(io::SeekFrom::End(0))
+                           .chain_err(|| "seek end"));
+            try!(trans.stage(tid, &mut file, pos)
+                 .chain_err(|| "trans stage"));
+            voted.push_front(transaction.clone());
+        }
             
+        Ok(conflicts)
     }
 
-    // fn tpc_vote(&mut self, &mut transaction::Transaction)
-    //             -> io::Result<()> {
-    //     for (oid, data) in transaction.saved() {
-    //         try
-
-    //     }
-
-    // }
-
+    fn tpc_finish(&self,
+                  transaction: &transaction::TransactionM<'store>,
+                  finished: Box<Fn(Tid)>)
+                  -> Result<()> {
+        transaction.lock().unwrap().start_finishing(finished);
+        let mut voted = self.voted.lock().unwrap();
+        while voted.len() > 0 {
+            {
+                let mut trans = voted[0].lock().unwrap();
+                if let transaction::TransactionState::Finishing{pos, ..} =
+                    trans.state {
+                        let mut file = self.file.lock().unwrap();
+                        try!(file.seek(io::SeekFrom::Start(pos))
+                             .chain_err(|| "seeking tpc_finish"));
+                        try!(file.write_all(TRANSACTION_MARKER)
+                             .chain_err(|| "writing trans marker tpc_finish"));
+                        let oids = try!(trans.finished());
+                        // TODO notify other clents
+                    }
+                else {
+                    break;
+                }
+            }
+            voted.pop_front();
+        }
+        Ok(())
+    }
 }
 
-fn try_it() -> io::Result<()> {
-    let s = try!(FileStorage::open("data.fs".to_string()));
-    let mut t = try!(s.tpc_begin(b"", b"", b""));
-    t.save([0u8; 8], b"xxxx");
-    //s.tpc_vote(t);
-    //s.tpc_finish(t);
+
+
+
+                     
+
+
+    
+//     let mut t = try!(s.tpc_begin(b"", b"", b""));
+//     t.save([0u8; 8], b"xxxx");
+//     //s.tpc_vote(t);
+//     //s.tpc_finish(t);
         
 
-    Ok(())
-}
+//     Ok(())
+// }
 
 
 

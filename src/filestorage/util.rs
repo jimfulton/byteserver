@@ -3,14 +3,15 @@ pub use std::io;
 pub use std::io::prelude::*;
 pub use std::fs::File;
 
-use std::cell::RefCell;
-use std::sync::Arc;
+pub use std::boxed::Box;
+pub use std::cell::RefCell;
+pub use std::sync::{Arc, Mutex};
 
 #[macro_export]
 macro_rules! io_assert {
     ($cond: expr, $msg: expr ) => (
         if ! ($cond) {
-            return io_error($msg)
+            return Err(io_error($msg))
         }
     )
 }
@@ -29,8 +30,8 @@ pub fn p64(i: u64) -> [u8; 8] {
     r
 }
 
-pub fn io_error<T>(message: &str) -> io::Result<T> {
-    Err(io::Error::new(io::ErrorKind::Other, message))
+pub fn io_error(message: &str) -> io::Error {
+    io::Error::new(io::ErrorKind::Other, message)
 }
 
 pub fn check_magic(reader: &mut io::Read, magic: &[u8]) -> io::Result<()> {

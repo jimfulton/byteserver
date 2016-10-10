@@ -25,7 +25,7 @@ impl FileHeader {
         let h = match String::from_utf8(try!(read_sized16(&mut reader))) {
             Ok(previous) =>
                 FileHeader { alignment: alignment, previous: previous },
-            _ => return io_error("Bad previous utf8"),
+            _ => return Err(io_error("Bad previous utf8")),
         };
         io_assert!(try!(reader.seek(io::SeekFrom::Start(4088))) == 4088,
                    "Seek failed");
@@ -108,6 +108,8 @@ pub struct DataHeader {
     pub offset: u64,
 }
 pub const DATA_HEADER_SIZE: u64 = 36;
+pub const DATA_TID_OFFSET: u64 = 12;
+pub const DATA_PREVIOUS_OFFSET: u64 = 20;
 
 impl DataHeader {
 
