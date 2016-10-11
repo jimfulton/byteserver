@@ -13,6 +13,7 @@ mod transaction;
 
 use std::fs::OpenOptions;
 use std::collections::VecDeque;
+use std;
 
 use self::errors::*;
 use self::util::*;
@@ -30,7 +31,7 @@ pub struct Conflict {
     data: Bytes,
 }
 
-pub struct FileStorage<'store> {
+pub struct FileStorage {
     path: String,
     file: Mutex<File>,
     index: Mutex<index::Index>,
@@ -38,14 +39,22 @@ pub struct FileStorage<'store> {
     tmps: pool::FilePool<pool::TmpFileFactory>,
     last_tid: Mutex<Tid>,
     locker: Mutex<lock::LockManager>,
-    voted: Mutex<VecDeque<transaction::TransactionM<'store>>>,
+    voted: Mutex<VecDeque<Voted>>,
     // TODO header: FileHeader,
 }
 
-impl<'store> FileStorage<'store> {
+pub struct Voted {
+    id: Tid,
+    pos: u64,
+    tid: Tid,
+    oids: Vec<Oid>,
+    finished: Option<Box<Fn(Tid)>>,
+}
+
+impl FileStorage {
 
     fn new(path: String, file: File, index: index::Index, last_tid: Tid)
-           -> io::Result<FileStorage<'store>> {
+           -> io::Result<FileStorage> {
         Ok(FileStorage {
             readers: pool::FilePool::new(
                 pool::ReadFileFactory { path: path.clone() }, 9),
@@ -60,7 +69,7 @@ impl<'store> FileStorage<'store> {
         })
     }
 
-    fn open(path: String) -> io::Result<FileStorage<'store>> {
+    fn open(path: String) -> io::Result<FileStorage> {
         let mut file = try!(OpenOptions::new()
                             .read(true).write(true).create(true)
                             .open(&path));
@@ -156,19 +165,24 @@ impl<'store> FileStorage<'store> {
         }
     }
 
-    fn lock(&self, transaction: &transaction::TransactionM, locked: Box<Fn()>)
+    fn lock(&self, transaction: &transaction::Transaction, locked: Box<Fn()>)
             -> Result<()> {
-        let (tid, oids) = try!(transaction.lock().unwrap().lock_data());
+        let (tid, oids) = try!(transaction.lock_data());
         let mut locker = self.locker.lock().unwrap();
         locker.lock(tid, oids, locked);
         Ok(())
     }
 
-    fn stage(&self, transaction: &transaction::TransactionM<'store>)
+    pub fn tpc_begin(&self, user: &[u8], desc: &[u8], ext: &[u8])
+                 -> io::Result<transaction::Transaction> {
+        Ok(try!(transaction::Transaction::begin(
+                try!(self.tmps.get()),
+                self.new_tid(), user, desc, ext)))
+    }
+
+    fn stage(&self, trans: &mut transaction::Transaction)
              -> Result<Vec<Conflict>> {
 
-        let mut trans = transaction.lock().unwrap();
-        
         // Check for conflicts
         let oid_serials = {
             let mut oid_serials: Vec<(Oid, Tid)> = vec![];
@@ -220,33 +234,38 @@ impl<'store> FileStorage<'store> {
             let tid = self.new_tid();
             let pos = try!(file.seek(io::SeekFrom::End(0))
                            .chain_err(|| "seek end"));
-            try!(trans.stage(tid, &mut file, pos)
-                 .chain_err(|| "trans stage"));
-            voted.push_front(transaction.clone());
+            let oids = try!(trans.stage(tid, &mut file, pos)
+                            .chain_err(|| "trans stage"));
+            voted.push_front(
+                Voted { id: trans.id, pos: pos, tid: tid, oids: oids,
+                        finished: None });
         }
             
         Ok(conflicts)
     }
 
-    fn tpc_finish(&self,
-                  transaction: &transaction::TransactionM<'store>,
-                  finished: Box<Fn(Tid)>)
-                  -> Result<()> {
-        transaction.lock().unwrap().start_finishing(finished);
+    fn tpc_finish(&self, id: &Tid, finished: Box<Fn(Tid)>) -> Result<()> {
         let mut voted = self.voted.lock().unwrap();
+
+        for v in voted.iter_mut() {
+            if v.id == *id {
+                v.finished = Some(finished);
+                break;
+            }
+        }
+        
         while voted.len() > 0 {
             {
-                let mut trans = voted[0].lock().unwrap();
-                if let transaction::TransactionState::Finishing{pos, ..} =
-                    trans.state {
-                        let mut file = self.file.lock().unwrap();
-                        try!(file.seek(io::SeekFrom::Start(pos))
-                             .chain_err(|| "seeking tpc_finish"));
-                        try!(file.write_all(TRANSACTION_MARKER)
-                             .chain_err(|| "writing trans marker tpc_finish"));
-                        let oids = try!(trans.finished());
-                        // TODO notify other clents
-                    }
+                let ref mut v = voted[0];
+                if let Some(ref finished) = v.finished {
+                    let mut file = self.file.lock().unwrap();
+                    try!(file.seek(io::SeekFrom::Start(v.pos))
+                         .chain_err(|| "seeking tpc_finish"));
+                    try!(file.write_all(TRANSACTION_MARKER)
+                         .chain_err(|| "writing trans marker tpc_finish"));
+                    self.locker.lock().unwrap().release(&v.id);
+                    // TODO notify other clents, v.oids
+                }
                 else {
                     break;
                 }
@@ -257,7 +276,22 @@ impl<'store> FileStorage<'store> {
     }
 }
 
+fn basic_update() {
+    let fs = FileStorage::open(String::from("data.fs")).unwrap();
 
+    let mut t = fs.tpc_begin(b"", b"", b"").unwrap();
+    t.save(Z64, Z64, b"xxxx").unwrap();
+    t.save(p64(1), Z64, b"yyyy").unwrap();
+
+    let (tx, rx) = std::sync::mpsc::channel();
+    fs.lock(&t, Box::new(move || tx.send(true).unwrap()));
+    rx.recv().unwrap();
+    t.locked().unwrap();
+    let conflicts = fs.stage(&mut t).unwrap();
+    assert_eq!(conflicts.len(), 0);
+    fs.tpc_finish(&t.id, Box::new(
+        | tid | println!("{:?}", tid))).unwrap();
+}
 
 
                      

@@ -64,6 +64,8 @@ impl LockManager {
     }
 
     pub fn release(&mut self, id: &Tid) {
+        // Release any locks held for the given id. This has no effect of no
+        // locks are held.
         if let Some(mut locking) = self.locking.remove(id) {
             while ! locking.got.is_empty() {
                 let oid = locking.got.pop().unwrap();

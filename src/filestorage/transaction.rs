@@ -8,8 +8,6 @@ use super::records;
 
 static PADDING16: [u8; 16] = [0u8; 16]; 
 
-pub type TransactionM<'a> = Arc<Mutex<Transaction<'a>>>;
-
 pub struct TransactionData<'store> {
     filep: pool::TmpFilePointer<'store>,
     writer: io::BufWriter<File>,
@@ -44,16 +42,7 @@ pub enum TransactionState<'store> {
     Saving(TransactionData<'store>),
     TransitioningToVoting,
     Voting(TransactionData<'store>),
-    Voted {
-        pos: u64,
-        tid: Tid,
-    },
-    Finishing {
-        pos: u64,
-        tid: Tid,
-        callback: Box<Fn(Tid)>,
-    },
-    Over,
+    Voted,
 }
 
 pub struct Transaction<'store> {
@@ -248,7 +237,7 @@ impl<'store, 't> Transaction<'store> {
     }
 
     pub fn stage(&mut self, tid: Tid, mut out: &mut File, pos: u64)
-                 -> io::Result<()> {
+                 -> io::Result<Vec<Oid>> {
         if let TransactionState::Voting(ref mut data) = self.state {
             // Update tids in temp file
             try!(data.save_tid(tid, self.index.len() as u32));
@@ -262,37 +251,9 @@ impl<'store, 't> Transaction<'store> {
             try!(file.set_len(0));
         }          
         else { return Err(io_error("Invalid trans state")) }
-        self.state = TransactionState::Voted{ pos: pos, tid: tid};
+        self.state = TransactionState::Voted;
 
-        Ok(())
-    }
-
-    pub fn start_finishing(&mut self, callback: Box<Fn(Tid)>) -> Result<()> {
-        if let TransactionState::Voted {pos, tid} = self.state {
-            self.state = TransactionState::Finishing {
-                pos: pos, tid: tid, callback: callback };
-            Ok(())
-        }          
-        else { Err("Invalid trans state".into()) }
-    }
-
-    pub fn finished(&mut self) -> Result<Vec<Oid>> {
-        if let TransactionState::Finishing { ref callback, tid, ..} =
-            self.state {
-                callback(tid);
-            }          
-        else {
-            return Err("Invalid trans state".into())
-        }
-
-        let oids = self.index.keys().map(| r | r.clone()).collect::<Vec<Oid>>();
-        self.over();
-        Ok(oids)
-    }
-
-    pub fn over(&mut self) {
-        self.state = TransactionState::Over;
-        self.index.clear();
+        Ok(self.index.keys().map(| r | r.clone()).collect::<Vec<Oid>>())
     }
 }
 
