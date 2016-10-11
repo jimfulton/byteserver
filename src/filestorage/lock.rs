@@ -8,7 +8,7 @@ pub struct Locking {
     id: Tid,
     want: Vec<Oid>,
     got: Vec<Oid>,
-    locked: Box<Fn()>,
+    locked: Box<Fn(Tid)>,
 }
     
 pub struct LockManager {
@@ -27,7 +27,7 @@ impl LockManager {
         }
     }
 
-    pub fn lock(&mut self, id: Tid, want: Vec<Oid>, locked: Box<Fn()>) {
+    pub fn lock(&mut self, id: Tid, want: Vec<Oid>, locked: Box<Fn(Tid)>) {
         self.lock_waiting(
             Locking { id: id, want: want, got: vec![], locked: locked });
     }
@@ -56,7 +56,7 @@ impl LockManager {
                 }
             }
             if want.is_empty() {
-                (*locking.locked)()
+                (*locking.locked)(locking.id)
             }
         }
         self.locking.insert(id, locking);
@@ -108,11 +108,14 @@ mod tests {
     }
     fn lock(lm: &mut LockManager, locker: Ob<TestLocker>, oids: Vec<u64>) {
         let id = locker.borrow().id;
+        let orig_id = id.clone();
         lm.lock(id,
                 oids.iter().map(| i | p64(*i)).collect::<Vec<Oid>>(),
-                Box::new(move || locker.borrow_mut().locked()),
-                )
-
+                Box::new(move | lid | {
+                    assert_eq!(lid, orig_id);
+                    locker.borrow_mut().locked()
+                }),
+        )
     }
     
     #[test]

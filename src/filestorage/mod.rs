@@ -165,7 +165,7 @@ impl FileStorage {
         }
     }
 
-    fn lock(&self, transaction: &transaction::Transaction, locked: Box<Fn()>)
+    fn lock(&self, transaction: &transaction::Transaction, locked: Box<Fn(Tid)>)
             -> Result<()> {
         let (tid, oids) = try!(transaction.lock_data());
         let mut locker = self.locker.lock().unwrap();
@@ -284,7 +284,7 @@ fn basic_update() {
     t.save(p64(1), Z64, b"yyyy").unwrap();
 
     let (tx, rx) = std::sync::mpsc::channel();
-    fs.lock(&t, Box::new(move || tx.send(true).unwrap()));
+    fs.lock(&t, Box::new(move | id | tx.send(true).unwrap()));
     rx.recv().unwrap();
     t.locked().unwrap();
     let conflicts = fs.stage(&mut t).unwrap();
