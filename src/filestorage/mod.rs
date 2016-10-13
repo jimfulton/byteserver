@@ -1,9 +1,9 @@
 /// filestorage2
 
 #[macro_use]
-mod util;
+pub mod util;
 
-mod errors;
+pub mod errors;
 mod index;
 mod lock;
 mod pool;
@@ -23,6 +23,7 @@ static INDEX_SUFFIX: &'static str = ".index";
 pub enum LoadBeforeResult {
     Loaded(Bytes, Tid, Option<Tid>),
     NoneBefore,
+    PosKeyError,
 }
 
 pub struct Conflict {
@@ -38,6 +39,7 @@ pub struct FileStorage {
     readers: pool::FilePool<pool::ReadFileFactory>,
     tmps: pool::FilePool<pool::TmpFileFactory>,
     last_tid: Mutex<Tid>,
+    committed_tid: Mutex<Tid>,
     locker: Mutex<lock::LockManager>,
     voted: Mutex<VecDeque<Voted>>,
     // TODO header: FileHeader,
@@ -63,13 +65,14 @@ impl FileStorage {
             path: path,
             file: Mutex::new(file),
             index: Mutex::new(index),
+            committed_tid: Mutex::new(last_tid),
             last_tid: Mutex::new(last_tid),
             locker: Mutex::new(lock::LockManager::new()),
             voted: Mutex::new(VecDeque::new()),
         })
     }
 
-    fn open(path: String) -> io::Result<FileStorage> {
+    pub fn open(path: String) -> io::Result<FileStorage> {
         let mut file = try!(OpenOptions::new()
                             .read(true).write(true).create(true)
                             .open(&path));
@@ -134,8 +137,9 @@ impl FileStorage {
         index.get(oid).map(| pos | *pos)
     }
 
-    fn load_before(&self, oid: Oid, tid: &Tid) -> Result<LoadBeforeResult> {
-        match self.lookup_pos(&oid) {
+    pub fn load_before(&self, oid: &Oid, tid: &Tid)
+                       -> Result<LoadBeforeResult> {
+        match self.lookup_pos(oid) {
             Some(pos) => {
                 let p = try!(self.readers.get()
                              .chain_err(|| "getting reader"));
@@ -160,8 +164,7 @@ impl FileStorage {
                          .chain_err(|| "Reading object data")),
                     header.tid, next))
             },
-            None =>
-                Err(ErrorKind::POSKeyError(oid).into()),
+            None => Ok(LoadBeforeResult::PosKeyError),
         }
     }
 
@@ -180,7 +183,7 @@ impl FileStorage {
                 self.new_tid(), user, desc, ext)))
     }
 
-    fn stage(&self, trans: &mut transaction::Transaction)
+    pub fn stage(&self, trans: &mut transaction::Transaction)
              -> Result<Vec<Conflict>> {
 
         // Check for conflicts
@@ -244,7 +247,7 @@ impl FileStorage {
         Ok(conflicts)
     }
 
-    fn tpc_finish(&self, id: &Tid, finished: Box<Fn(Tid)>) -> Result<()> {
+    pub fn tpc_finish(&self, id: &Tid, finished: Box<Fn(Tid)>) -> Result<()> {
         let mut voted = self.voted.lock().unwrap();
 
         for v in voted.iter_mut() {
@@ -274,7 +277,15 @@ impl FileStorage {
         }
         Ok(())
     }
+
+    pub fn last_transaction(&self) -> Tid {
+        self.committed_tid.lock().unwrap().clone()
+    }
 }
+
+unsafe impl std::marker::Send for FileStorage {}
+unsafe impl std::marker::Sync for FileStorage {}
+
 
 fn basic_update() {
     let fs = FileStorage::open(String::from("data.fs")).unwrap();
@@ -292,21 +303,6 @@ fn basic_update() {
     fs.tpc_finish(&t.id, Box::new(
         | tid | println!("{:?}", tid))).unwrap();
 }
-
-
-                     
-
-
-    
-//     let mut t = try!(s.tpc_begin(b"", b"", b""));
-//     t.save([0u8; 8], b"xxxx");
-//     //s.tpc_vote(t);
-//     //s.tpc_finish(t);
-        
-
-//     Ok(())
-// }
-
 
 
 
