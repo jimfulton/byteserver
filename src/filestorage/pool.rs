@@ -115,14 +115,17 @@ mod tests {
     pub use std::io::prelude::*;
     pub use std::sync;
     pub use std::thread;
+
+    pub use filestorage::util;
     
     describe! filepool {
 
-        before_each {
-            let tmp_dir = TempDir::new("example").unwrap();
-        }
+        // before_each {
+        //     let tmp_dir = TempDir::new("example").unwrap();
+        // }
 
         it "works!" {
+            let tmp_dir = util::test::dir();
             let sample = b"data";
             let path = String::from(
                 tmp_dir.path().join("data").to_str().unwrap());

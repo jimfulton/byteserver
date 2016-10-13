@@ -81,3 +81,16 @@ pub type Ob<T> = Arc<RefCell<T>>;
 pub fn new_ob<T>(v: T) -> Ob<T> {
     Arc::new(RefCell::new(v))
 }
+
+
+// ======================================================================
+
+#[cfg(test)]
+pub mod test {
+
+    extern crate tempdir;
+
+    pub fn dir() -> tempdir::TempDir {
+        tempdir::TempDir::new("test").unwrap()
+    }
+}
