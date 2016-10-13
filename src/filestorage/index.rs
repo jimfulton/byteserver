@@ -12,6 +12,7 @@ pub fn save_index(index: &Index, path: &str,
               segment_size: u64, start: &Tid, end: &Tid)
               -> io::Result<()> {
     let mut writer = io::BufWriter::new(try!(File::create(path)));
+    try!(writer.write_all(MAGIC));
     try!(writer.write_u64::<LittleEndian>(index.len() as u64));
     try!(writer.write_u64::<LittleEndian>(segment_size));
     try!(writer.write_all(start));
@@ -36,4 +37,35 @@ pub fn load_index(path: &str) -> io::Result<(Index, u64, Tid, Tid)> {
                      try!(reader.read_u64::<LittleEndian>()));
     }
     Ok((index, segment_size, start, end))
+}
+
+// ======================================================================
+
+#[cfg(test)]
+mod tests {
+
+    use super::*;
+    use filestorage::util;
+    use filestorage::util::*;
+
+    #[test]
+    fn works() {
+        let mut index = Index::new();
+
+        for i in 0..10 {
+            index.insert(p64(i), i*999);
+        }
+
+        let tmpdir = util::test::dir();
+
+        let path = String::from(tmpdir.path().join("index").to_str().unwrap());
+        let segment_size = 9999u64;
+        let start = p64(1);
+        let end = p64(1234567890);
+        
+        save_index(&index, &path, segment_size, &start, &end).unwrap();
+
+        assert_eq!(load_index(&path).unwrap(),
+                   (index, segment_size, start, end));
+    }
 }
