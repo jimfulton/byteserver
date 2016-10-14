@@ -33,15 +33,19 @@ pub fn tm_tid(tm: time::Tm) -> Tid {
 
 pub fn now_tid() -> Tid { tm_tid(time::now_utc()) }
 
+pub fn next(tid: &Tid) -> Tid {
+    let mut next = tid.clone();
+    let iold = BigEndian::read_u64(&mut next);
+    BigEndian::write_u64(&mut next, iold + 1);
+    next
+}
+
 pub fn later_than(new: Tid, old: Tid) -> Tid {
     if new > old {
         new
     }
     else {
-        let mut tid = old.clone();
-        let iold = BigEndian::read_u64(&mut tid);
-        BigEndian::write_u64(&mut tid, iold + 1);
-        tid
+        next(&old)
     }
 }
 

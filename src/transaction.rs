@@ -40,7 +40,7 @@ impl<'store> TransactionData<'store> {
 
 pub enum TransactionState<'store> {
     Saving(TransactionData<'store>),
-    TransitioningToVoting,
+    Transitioning,
     Voting(TransactionData<'store>),
     Voted,
 }
@@ -115,7 +115,7 @@ impl<'store, 't> Transaction<'store> {
 
     pub fn locked(&mut self) -> Result<()>
     {
-        let mut state = TransactionState::TransitioningToVoting;
+        let mut state = TransactionState::Transitioning;
         std::mem::swap(&mut state, &mut self.state);
 
         if let TransactionState::Saving(mut data) = state {
@@ -134,6 +134,28 @@ impl<'store, 't> Transaction<'store> {
             std::mem::swap(&mut state, &mut self.state); // restore
             Err("Invalid trans state".into())
         }
+    }
+
+    pub fn unlocked(&mut self) -> Result<()> {
+        let mut state = TransactionState::Transitioning;
+        std::mem::swap(&mut state, &mut self.state);
+        if let TransactionState::Voting(mut data) = state {
+            match seek(&mut data.writer, data.length) {
+                Ok(_) => {
+                    self.state = TransactionState::Saving(data);
+                    Ok(())
+                }
+                err => {
+                    self.state = TransactionState::Voting(data);
+                    Err("seek failed".into())
+                },
+            }
+        }          
+        else {
+            std::mem::swap(&mut state, &mut self.state); // restore
+            Err("Invalid trans state".into())
+        }
+
     }
 
     pub fn serials(&'t mut self) -> io::Result<TransactionSerialIterator<'t>> {

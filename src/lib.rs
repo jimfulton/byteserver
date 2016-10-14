@@ -14,15 +14,15 @@ extern crate time;
 extern crate error_chain;
 
 #[macro_use]
-mod util;
+pub mod util;
 
 mod errors;
-mod storage;
+pub mod storage;
 mod index;
 mod lock;
 mod msgparse;
 mod pool;
 mod records;
 mod server;
-mod tid;
+pub mod tid;
 mod transaction;

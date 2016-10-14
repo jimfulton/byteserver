@@ -113,12 +113,15 @@ pub fn seek(s: &mut io::Seek, pos: u64) -> io::Result<u64> {
 
 // ======================================================================
 
-#[cfg(test)]
 pub mod test {
 
-    extern crate tempdir;
-
+    use tempdir;
+    
     pub fn dir() -> tempdir::TempDir {
         tempdir::TempDir::new("test").unwrap()
+    }
+
+    pub fn test_path(dir: &tempdir::TempDir, name: &str) -> String {
+        String::from(dir.path().join(name).to_str().unwrap())
     }
 }

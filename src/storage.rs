@@ -16,16 +16,18 @@ use util::*;
 
 static INDEX_SUFFIX: &'static str = ".index";
 
+#[derive(Debug)]
 pub enum LoadBeforeResult {
     Loaded(Bytes, Tid, Option<Tid>),
     NoneBefore,
     PosKeyError,
 }
 
+#[derive(Debug, PartialEq)]
 pub struct Conflict {
-    oid: Oid,
-    serials: (Tid, Tid),
-    data: Bytes,
+    pub oid: Oid,
+    pub serials: (Tid, Tid),
+    pub data: Bytes,
 }
 
 pub struct FileStorage {
@@ -164,8 +166,10 @@ impl FileStorage {
         }
     }
 
-    fn lock(&self, transaction: &transaction::Transaction, locked: Box<Fn(Tid)>)
-            -> Result<()> {
+    pub fn lock(&self,
+                transaction: &transaction::Transaction,
+                locked: Box<Fn(Tid)>)
+                -> Result<()> {
         let (tid, oids) = try!(transaction.lock_data());
         let mut locker = self.locker.lock().unwrap();
         locker.lock(tid, oids, locked);
@@ -239,6 +243,10 @@ impl FileStorage {
                 Voted { id: trans.id, pos: pos, tid: tid, index: index,
                         finished: None });
         }
+        else {
+            try!(trans.unlocked());
+            self.locker.lock().unwrap().release(&trans.id);
+        }
             
         Ok(conflicts)
     }
@@ -262,6 +270,14 @@ impl FileStorage {
                          .chain_err(|| "seeking tpc_finish"));
                     try!(file.write_all(TRANSACTION_MARKER)
                          .chain_err(|| "writing trans marker tpc_finish"));
+
+                    {
+                        let mut index = self.index.lock().unwrap();
+                        for (k, pos) in v.index.iter() {
+                            index.insert(k.clone(), *pos + v.pos);
+                        }
+                    }
+                    finished(v.tid);
                     self.locker.lock().unwrap().release(&v.id);
                     // TODO notify other clents, v.oids
                 }
