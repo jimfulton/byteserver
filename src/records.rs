@@ -53,6 +53,7 @@ impl FileHeader {
     }
 }
 
+#[derive(PartialEq, Debug)]
 pub struct TransactionHeader {
     pub length: u64,
     pub id: Tid,
@@ -99,6 +100,7 @@ impl TransactionHeader {
     
 }
 
+#[derive(PartialEq, Debug)]
 pub struct DataHeader {
     pub length: u32,
     pub id: Oid,
@@ -185,6 +187,31 @@ mod tests {
         };
         h.write(&mut writer).unwrap();
         assert_eq!(writer.into_inner(), file_header_sample(b"previous"));
+    }
+
+    #[test]
+    fn read_transaction_header() {
+        // Note that the transaction-header read method is called
+        // after reading the record marker.
+
+        let mut cursor = io::Cursor::new(Vec::new());
+
+        // Write out some sample data:
+        write_u64(&mut cursor, 9999).unwrap();
+        cursor.write_all(&p64(1234567890)).unwrap();
+        write_u32(&mut cursor, 2).unwrap();
+        write_u16(&mut cursor, 11).unwrap();
+        write_u16(&mut cursor, 22).unwrap();
+        write_u32(&mut cursor, 33).unwrap();
+        seek(&mut cursor, 0).unwrap();
+
+        let h = TransactionHeader::read(&mut cursor).unwrap();
+        assert_eq!(
+            h,
+            TransactionHeader {
+                length: 9999, id: p64(1234567890), ndata: 2,
+                luser: 11, ldesc: 22, lext: 33,
+            });
     }
     
 }
