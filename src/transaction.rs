@@ -87,8 +87,10 @@ impl<'store, 't> Transaction<'store> {
         if let TransactionState::Saving(ref mut  tdata) = self.state {
             try!(tdata.writer.write_u32::<LittleEndian>(data.len() as u32));
             try!(tdata.writer.write_all(&oid));
+            // read tid now, committed later:
             try!(tdata.writer.write_all(&serial));
-            try!(tdata.writer.write_all(&PADDING16)); // previous and offset
+            try!(write_u64(&mut tdata.writer, 0)); // previous
+            try!(write_u64(&mut tdata.writer, tdata.length)); // offset
             if data.len() > 0 { try!(tdata.writer.write_all(data)) }
             if self.index.insert(oid, tdata.length).is_some() {
                 // There was an earlier save for this oid.  We'll want to
@@ -201,20 +203,23 @@ impl<'store, 't> Transaction<'store> {
                     let oid = try!(read8(&mut &buf[4..]));
                     let oid_pos =
                         try!(self.index.get(&oid)
-                             .ok_or(io_error("trans index get")));
-                    if *oid_pos == rpos {
+                             .ok_or(io_error("trans index get"))).clone();
+                    if oid_pos == rpos {
                         // We want this one
                         if rpos != wpos {
                             // We need to move it.
-                            let rest =
+                            let mut rest = // tid, previous, offset, data
                                 try!(read_sized(
                                     &mut *file,
                                     dlen as usize +
                                         records::DATA_HEADER_SIZE as usize
                                         - 12));
+                            // update offset:
+                            write_u64(&mut &mut rest[16..24], wpos);
                             try!(file.seek(io::SeekFrom::Start(wpos)));
                             try!(file.write_all(&buf));
                             try!(file.write_all(&rest));
+                            self.index.insert(oid, wpos);
                             wpos += dlen + records::DATA_HEADER_SIZE;
                         }
                     }
@@ -236,8 +241,8 @@ impl<'store, 't> Transaction<'store> {
         else { Err(io_error("Invalid trans state")) }
     }
 
-    pub fn stage(&mut self, tid: Tid, mut out: &mut File, pos: u64)
-                 -> io::Result<Vec<Oid>> {
+    pub fn stage(&mut self, tid: Tid, mut out: &mut File)
+                 -> io::Result<Index> {
         if let TransactionState::Voting(ref mut data) = self.state {
             // Update tids in temp file
             try!(data.save_tid(tid, self.index.len() as u32));
@@ -253,7 +258,10 @@ impl<'store, 't> Transaction<'store> {
         else { return Err(io_error("Invalid trans state")) }
         self.state = TransactionState::Voted;
 
-        Ok(self.index.keys().map(| r | r.clone()).collect::<Vec<Oid>>())
+        let mut index = Index::new();
+        std::mem::swap(&mut index, &mut self.index);
+
+        Ok(index)
     }
 }
 
@@ -321,5 +329,190 @@ impl<'t> std::iter::Iterator for TransactionSerialIterator<'t> {
         else {
             None
         }
+    }
+}
+
+
+// ======================================================================
+
+#[cfg(test)]
+pub mod tests {
+
+    use super::*;
+    use index;
+    use pool;
+    use records;
+    use util;
+    use util::*;
+    
+    #[test]
+    fn works_w_dup() {
+        let tmpdir = util::test::dir();
+
+        let pool = pool::FilePool::new(
+            pool::TmpFileFactory::base(
+                String::from(
+                    tmpdir.path().join("tmp").to_str().unwrap())).unwrap(),
+            22);
+
+        let tempfilep = pool.get().unwrap();
+        let tempfile = tempfilep.borrow().try_clone().unwrap();
+
+        let mut trans = Transaction::begin(
+            tempfilep, p64(1234567890), b"user", b"desc", b"{}").unwrap();
+
+        trans.save(p64(0), p64(123456789), &[1; 11]).unwrap();
+        trans.save(p64(1), p64(12345678),  &[2; 22]).unwrap();
+        trans.save(p64(0), p64(123456788), &[3; 33]).unwrap();
+        assert_eq!(trans.lock_data().unwrap(),
+                   (p64(1234567890), vec![p64(1), p64(0)]));
+        trans.locked().unwrap();
+        let mut serials = trans.serials().unwrap()
+            .map(| r | r.unwrap())
+            .collect::<Vec<(Oid, Tid)>>();
+        serials.sort();
+        assert_eq!(serials,
+                   vec![(p64(0), p64(123456788)), (p64(1), p64(12345678))]);
+        assert_eq!(trans.get_data(&p64(0)).unwrap(), vec![3; 33]);
+        assert_eq!(trans.get_data(&p64(1)).unwrap(), vec![2; 22]);
+        trans.set_previous(&p64(0), 7777);
+        
+        trans.pack().unwrap();
+
+        let t2 = pool.get().unwrap();
+        let mut file = t2.borrow_mut();
+        let index = trans.stage(p64(1234567891), &mut file).unwrap();
+
+        // Now, we'll verify the saved data.
+        let l = file.seek(io::SeekFrom::End(0)).unwrap();
+        seek(&mut *file, 0).unwrap();
+        assert_eq!(&read4(&mut *file).unwrap(), b"PPPP");
+        let th = records::TransactionHeader::read(&mut *file).unwrap();
+        assert_eq!(
+            th,
+            records::TransactionHeader {
+                length: l, id: p64(1234567891), ndata: 2,
+                luser: 4, ldesc: 4, lext: 2 });
+        assert_eq!(&read4(&mut *file).unwrap(), b"user");
+        assert_eq!(&read4(&mut *file).unwrap(), b"desc");
+        assert_eq!(&read_sized(&mut *file, 2).unwrap(), b"{}");
+
+        let dh1 = records::DataHeader::read(&mut *file).unwrap();
+        assert_eq!(
+            dh1,
+            records::DataHeader {
+                length: 22, id: p64(1), tid: p64(1234567891),
+                previous: 0,
+                offset: records::TRANSACTION_HEADER_LENGTH + 14,
+            });
+        assert_eq!(read_sized(&mut *file, dh1.length as usize).unwrap(),
+                   vec![2; 22]);
+
+        let dh0 = records::DataHeader::read(&mut *file).unwrap();
+        assert_eq!(
+            dh0,
+            records::DataHeader {
+                length: 33, id: p64(0), tid: p64(1234567891),
+                previous: 7777,
+                offset:
+                dh1.offset + records::DATA_HEADER_SIZE + dh1.length as u64,
+            });
+        assert_eq!(read_sized(&mut *file, dh0.length as usize).unwrap(),
+                   vec![3; 33]);
+
+        assert_eq!(read_u64(&mut *file).unwrap(), l); // Check redundant length
+
+        assert_eq!(
+            index, {
+                let mut other = index::Index::new();
+                other.insert(p64(0), dh0.offset);
+                other.insert(p64(1), dh1.offset);
+                other
+            });
+    }
+    
+    #[test]
+    fn works_wo_dup() {
+        let tmpdir = util::test::dir();
+
+        let pool = pool::FilePool::new(
+            pool::TmpFileFactory::base(
+                String::from(
+                    tmpdir.path().join("tmp").to_str().unwrap())).unwrap(),
+            22);
+
+        let tempfilep = pool.get().unwrap();
+        let tempfile = tempfilep.borrow().try_clone().unwrap();
+
+        let mut trans = Transaction::begin(
+            tempfilep, p64(1234567890), b"user", b"desc", b"{}").unwrap();
+
+        trans.save(p64(0), p64(123456789), &[1; 11]).unwrap();
+        trans.save(p64(1), p64(12345678),  &[2; 22]).unwrap();
+        assert_eq!(trans.lock_data().unwrap(),
+                   (p64(1234567890), vec![p64(1), p64(0)]));
+        trans.locked().unwrap();
+        let mut serials = trans.serials().unwrap()
+            .map(| r | r.unwrap())
+            .collect::<Vec<(Oid, Tid)>>();
+        serials.sort();
+        assert_eq!(serials,
+                   vec![(p64(0), p64(123456789)), (p64(1), p64(12345678))]);
+        assert_eq!(trans.get_data(&p64(0)).unwrap(), vec![1; 11]);
+        assert_eq!(trans.get_data(&p64(1)).unwrap(), vec![2; 22]);
+        trans.set_previous(&p64(0), 7777);
+        
+        trans.pack().unwrap();
+
+        let t2 = pool.get().unwrap();
+        let mut file = t2.borrow_mut();
+        let index = trans.stage(p64(1234567891), &mut file).unwrap();
+
+        // Now, we'll verify the saved data.
+        let l = file.seek(io::SeekFrom::End(0)).unwrap();
+        seek(&mut *file, 0).unwrap();
+        assert_eq!(&read4(&mut *file).unwrap(), b"PPPP");
+        let th = records::TransactionHeader::read(&mut *file).unwrap();
+        assert_eq!(
+            th,
+            records::TransactionHeader {
+                length: l, id: p64(1234567891), ndata: 2,
+                luser: 4, ldesc: 4, lext: 2 });
+        assert_eq!(&read4(&mut *file).unwrap(), b"user");
+        assert_eq!(&read4(&mut *file).unwrap(), b"desc");
+        assert_eq!(&read_sized(&mut *file, 2).unwrap(), b"{}");
+
+        let dh0 = records::DataHeader::read(&mut *file).unwrap();
+        assert_eq!(
+            dh0,
+            records::DataHeader {
+                length: 11, id: p64(0), tid: p64(1234567891),
+                previous: 7777,
+                offset: records::TRANSACTION_HEADER_LENGTH + 14,
+            });
+        assert_eq!(read_sized(&mut *file, dh0.length as usize).unwrap(),
+                   vec![1; 11]);
+
+        let dh1 = records::DataHeader::read(&mut *file).unwrap();
+        assert_eq!(
+            dh1,
+            records::DataHeader {
+                length: 22, id: p64(1), tid: p64(1234567891),
+                previous: 0,
+                offset:
+                dh0.offset + records::DATA_HEADER_SIZE + dh0.length as u64,
+            });
+        assert_eq!(read_sized(&mut *file, dh1.length as usize).unwrap(),
+                   vec![2; 22]);
+
+        assert_eq!(read_u64(&mut *file).unwrap(), l); // Check redundant length
+
+        assert_eq!(
+            index, {
+                let mut other = index::Index::new();
+                other.insert(p64(0), dh0.offset);
+                other.insert(p64(1), dh1.offset);
+                other
+            });
     }
 }

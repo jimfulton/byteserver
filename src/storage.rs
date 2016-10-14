@@ -45,7 +45,7 @@ pub struct Voted {
     id: Tid,
     pos: u64,
     tid: Tid,
-    oids: Vec<Oid>,
+    index: index::Index,
     finished: Option<Box<Fn(Tid)>>,
 }
 
@@ -233,10 +233,10 @@ impl FileStorage {
             let tid = self.new_tid();
             let pos = try!(file.seek(io::SeekFrom::End(0))
                            .chain_err(|| "seek end"));
-            let oids = try!(trans.stage(tid, &mut file, pos)
-                            .chain_err(|| "trans stage"));
+            let index = try!(trans.stage(tid, &mut file)
+                             .chain_err(|| "trans stage"));
             voted.push_front(
-                Voted { id: trans.id, pos: pos, tid: tid, oids: oids,
+                Voted { id: trans.id, pos: pos, tid: tid, index: index,
                         finished: None });
         }
             
