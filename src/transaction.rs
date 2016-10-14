@@ -465,8 +465,13 @@ pub mod tests {
         trans.pack().unwrap();
 
         let t2 = pool.get().unwrap();
+
+        assert_eq!(pool.len(), 0);
+        
         let mut file = t2.borrow_mut();
         let index = trans.stage(p64(1234567891), &mut file).unwrap();
+
+        assert_eq!(pool.len(), 1); // The transaction's tmp file ws returned.
 
         // Now, we'll verify the saved data.
         let l = file.seek(io::SeekFrom::End(0)).unwrap();

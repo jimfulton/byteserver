@@ -77,6 +77,10 @@ impl<F: FileFactory> FilePool<F> {
             files.push(filerc);
         }
     }
+
+    pub fn len(&self) -> usize {
+        self.files.lock().unwrap().len()
+    }
 }
 
 unsafe impl<F: FileFactory> marker::Sync for FilePool<F> {}
