@@ -82,6 +82,22 @@ pub fn new_ob<T>(v: T) -> Ob<T> {
     Arc::new(RefCell::new(v))
 }
 
+pub fn write_u16(w: &mut io::Write, v: u16) -> io::Result<()> {
+    w.write_u16::<LittleEndian>(v)
+}
+
+pub fn write_u32(w: &mut io::Write, v: u32) -> io::Result<()> {
+    w.write_u32::<LittleEndian>(v)
+}
+
+pub fn write_u64(w: &mut io::Write, v: u64) -> io::Result<()> {
+    w.write_u64::<LittleEndian>(v)
+}
+
+pub fn seek(s: &mut io::Seek, pos: u64) -> io::Result<u64> {
+    s.seek(io::SeekFrom::Start(pos))
+}
+
 
 // ======================================================================
 
