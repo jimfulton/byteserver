@@ -82,6 +82,18 @@ pub fn new_ob<T>(v: T) -> Ob<T> {
     Arc::new(RefCell::new(v))
 }
 
+pub fn read_u16(r: &mut io::Read) -> io::Result<u16> {
+    r.read_u16::<LittleEndian>()
+}
+
+pub fn read_u32(r: &mut io::Read) -> io::Result<u32> {
+    r.read_u32::<LittleEndian>()
+}
+
+pub fn read_u64(r: &mut io::Read) -> io::Result<u64> {
+    r.read_u64::<LittleEndian>()
+}
+
 pub fn write_u16(w: &mut io::Write, v: u16) -> io::Result<()> {
     w.write_u16::<LittleEndian>(v)
 }
