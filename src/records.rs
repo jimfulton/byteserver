@@ -81,9 +81,8 @@ impl TransactionHeader {
         Ok(h)
     }
 
-    pub fn update_index<T>(
-        &self, mut reader: &mut T, index: &mut index::Index)
-        -> io::Result<()>
+    pub fn update_index<T>(&self, mut reader: &mut T, index: &mut index::Index)
+                           -> io::Result<()>
         where T: io::Read + io::Seek {
         let mut pos = try!(reader.seek(
             io::SeekFrom::Current(
@@ -141,63 +140,51 @@ impl DataHeader {
 mod tests {
 
     pub use super::*;
-    pub use std::fs::File;
-    pub use tempdir::TempDir;
-    pub use std::io;
+    use util::*;
 
-    describe! fileheader {
-        before_each {
-            let mut sample = vec![0u8; 0];
-            sample.extend_from_slice(&HEADER_MARKER);
-            sample.extend_from_slice(&[0, 16, 0, 0, 0, 0, 0, 0]); // 4096
-            sample.extend_from_slice(&[0, 0, 0, 64, 0, 0, 0, 0]); // 1<<30
-            sample.extend_from_slice(&[0, 0]);                    // len(b'')
-            sample.extend_from_slice(&[0; 4066]);
-            sample.extend_from_slice(&[0, 16, 0, 0, 0, 0, 0, 0]); // 4096 again
+    fn file_header_sample(previous: &[u8]) -> Vec<u8> {
+        let mut sample = vec![0u8; 0];
+        sample.extend_from_slice(&HEADER_MARKER);
+        sample.extend_from_slice(&[0, 16, 0, 0, 0, 0, 0, 0]); // 4096
+        sample.extend_from_slice(&[0, 0, 0, 64, 0, 0, 0, 0]); // 1<<30
+        sample.extend_from_slice(&vec![previous.len() as u8, 0u8][..]);
+        sample.extend_from_slice(&previous);
+        sample.extend_from_slice(&vec![0; 4066 - previous.len()]);
+        sample.extend_from_slice(&[0, 16, 0, 0, 0, 0, 0, 0]); // 4096
+        sample
+    } 
 
-            let previous: &[u8] = b"previous";
-            let mut sample_prev = vec![0u8; 0];
-            sample_prev.extend_from_slice(&HEADER_MARKER);
-            sample_prev.extend_from_slice(&[0, 16, 0, 0, 0, 0, 0, 0]); // 4096
-            sample_prev.extend_from_slice(&[0, 0, 0, 64, 0, 0, 0, 0]); // 1<<30
-            sample_prev.extend_from_slice(&[8, 0]);
-            sample_prev.extend_from_slice(&previous);
-            sample_prev.extend_from_slice(&[0; 4058]);
-            sample_prev.extend_from_slice(&[0, 16, 0, 0, 0, 0, 0, 0]); // 4096
-        }
+    #[test]
+    fn read_file_header() {
+        let mut reader = io::Cursor::new(file_header_sample(b""));
+        let h = FileHeader::read(&mut reader).unwrap();
+        assert_eq!(&h.previous, "");
+        assert_eq!(h.alignment, 1<<30);
 
-        it "can be read" {
-            let mut reader = io::Cursor::new(sample);
-            let h = FileHeader::read(&mut reader).unwrap();
-            assert_eq!(&h.previous, "");
-            assert_eq!(h.alignment, 1<<30);
-
-            println!("{:?}", previous);
-            
-            let mut reader = io::Cursor::new(sample_prev);
-            let h = FileHeader::read(&mut reader).unwrap();
-            assert_eq!(h.previous,
-                       String::from_utf8(previous.to_vec()).unwrap());
-            assert_eq!(h.alignment, 1<<30);
-        }
-        
-        it "can be written" {
-            
-            let mut writer = io::Cursor::new(vec![0u8; 0]);
-            let h = FileHeader {
-                previous: String::new(),
-                alignment: 1<<30,
-            };
-            h.write(&mut writer).unwrap();
-            assert_eq!(writer.into_inner(), sample.to_vec());
-            
-            let mut writer = io::Cursor::new(vec![0u8; 0]);
-            let h = FileHeader {
-                previous: String::from("previous"),
-                alignment: 1<<30,
-            };
-            h.write(&mut writer).unwrap();
-            assert_eq!(writer.into_inner(), sample_prev.to_vec());
-        }
+        let mut reader = io::Cursor::new(file_header_sample(b"previous"));
+        let h = FileHeader::read(&mut reader).unwrap();
+        assert_eq!(h.previous, "previous");
+        assert_eq!(h.alignment, 1<<30);
     }
+
+    #[test]
+    fn write_file_header() {
+        
+        let mut writer = io::Cursor::new(vec![0u8; 0]);
+        let h = FileHeader {
+            previous: String::new(),
+            alignment: 1<<30,
+        };
+        h.write(&mut writer).unwrap();
+        assert_eq!(writer.into_inner(), file_header_sample(b""));
+        
+        let mut writer = io::Cursor::new(vec![0u8; 0]);
+        let h = FileHeader {
+            previous: String::from("previous"),
+            alignment: 1<<30,
+        };
+        h.write(&mut writer).unwrap();
+        assert_eq!(writer.into_inner(), file_header_sample(b"previous"));
+    }
+    
 }

@@ -15,8 +15,5 @@ tempdir = "*"
 tempfile = "*"
 time = "*"
 
-[dev-dependencies]
-stainless = "*"
-
 [profile.release]
 debug = true
