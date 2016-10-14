@@ -107,55 +107,45 @@ impl<'pool, F: FileFactory + 'pool> Drop for PooledFilePointer<'pool, F> {
 #[cfg(test)]
 mod tests {
 
-    extern crate tempdir;
-    pub use tempdir::TempDir;
-    pub use super::*;
-    pub use std::fs::File;
-    pub use std::io;
-    pub use std::io::prelude::*;
-    pub use std::sync;
-    pub use std::thread;
+    use super::*;
+    use std::fs::File;
+    use std::io;
+    use std::io::prelude::*;
+    use std::sync;
+    use std::thread;
 
-    pub use filestorage::util;
-    
-    describe! filepool {
+    use util;
 
-        // before_each {
-        //     let tmp_dir = TempDir::new("example").unwrap();
-        // }
+    #[test]
+    fn works() {
+        let tmp_dir = util::test::dir();
+        let sample = b"data";
+        let path = String::from(
+            tmp_dir.path().join("data").to_str().unwrap());
+        { File::create(&path).unwrap().write_all(sample).unwrap(); }
+        
+        let pool = sync::Arc::new(
+            FilePool::new(ReadFileFactory { path: path }, 2));
+        let (t, r) = sync::mpsc::channel();
 
-        it "works!" {
-            let tmp_dir = util::test::dir();
-            let sample = b"data";
-            let path = String::from(
-                tmp_dir.path().join("data").to_str().unwrap());
-            { File::create(&path).unwrap().write_all(sample).unwrap(); }
-            
-            let pool = sync::Arc::new(
-                FilePool::new(ReadFileFactory { path: path }, 2));
-            let (t, r) = sync::mpsc::channel();
-
-            let count = 8;
-            
-            for i in 0 .. count {
-                let tt = t.clone();
-                let tpool = pool.clone();
-                thread::spawn(move || {
-                    let p = tpool.get().unwrap();
-                    let mut file = p.borrow_mut();
-                    let mut buf = [0u8; 4];
-                    file.seek(io::SeekFrom::Start(0)).unwrap();
-                    file.read_exact(&mut buf).unwrap();
-                    tt.send(buf);
-                });
-            }
-
-            for i in 0 .. count {
-                assert_eq!(&r.recv().unwrap(), sample);
-            }
-
+        let count = 8;
+        
+        for i in 0 .. count {
+            let tt = t.clone();
+            let tpool = pool.clone();
+            thread::spawn(move || {
+                let p = tpool.get().unwrap();
+                let mut file = p.borrow_mut();
+                let mut buf = [0u8; 4];
+                file.seek(io::SeekFrom::Start(0)).unwrap();
+                file.read_exact(&mut buf).unwrap();
+                tt.send(buf);
+            });
         }
 
+        for i in 0 .. count {
+            assert_eq!(&r.recv().unwrap(), sample);
+        }
 
     }
 }

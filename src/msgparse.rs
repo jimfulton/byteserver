@@ -7,8 +7,8 @@ use serde::Deserialize;
 
 use byteorder::BigEndian;
 
-use filestorage::errors::*;
-use filestorage::util::*;
+use errors::*;
+use util::*;
 
 macro_rules! decode {
     ($data: expr) => (

@@ -1,10 +1,10 @@
 use std;
 
-use super::errors::*;
-use super::util::*;
-use super::index::Index;
-use super::pool;
-use super::records;
+use errors::*;
+use util::*;
+use index::Index;
+use pool;
+use records;
 
 static PADDING16: [u8; 16] = [0u8; 16]; 
 

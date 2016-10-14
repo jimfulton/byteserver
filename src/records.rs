@@ -1,5 +1,5 @@
-use super::index;
-use super::util::*;
+use index;
+use util::*;
 
 pub static HEADER_MARKER: &'static [u8] = b"fs2 ";
 

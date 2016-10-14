@@ -2,7 +2,7 @@ use std::collections::vec_deque::VecDeque;
 use std::collections::{HashMap, HashSet};
 use std::ops::Fn;
 
-use super::util::*;
+use util::*;
 
 pub struct Locking {
     id: Tid,
@@ -94,7 +94,7 @@ impl LockManager {
 mod tests {
 
     use super::*;
-    use super::super::util::*;
+    use util::*;
 
     struct TestLocker { id: Tid, pub is_locked: bool }
     impl TestLocker {

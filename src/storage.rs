@@ -1,22 +1,18 @@
 /// filestorage2
 
-#[macro_use]
-pub mod util;
-
-pub mod errors;
-mod index;
-mod lock;
-mod pool;
-mod records;
-mod tid;
-mod transaction;
-
 use std::fs::OpenOptions;
 use std::collections::VecDeque;
 use std;
 
-use self::errors::*;
-use self::util::*;
+use index;
+use lock;
+use pool;
+use records;
+use tid;
+use transaction;
+
+use errors::*;
+use util::*;
 
 static INDEX_SUFFIX: &'static str = ".index";
 

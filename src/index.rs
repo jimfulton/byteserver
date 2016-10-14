@@ -2,7 +2,7 @@
 
 use std::collections::btree_map::BTreeMap;
 
-use super::util::*;
+use util::*;
 
 pub type Index = BTreeMap<Oid, u64>;
     
@@ -45,8 +45,8 @@ pub fn load_index(path: &str) -> io::Result<(Index, u64, Tid, Tid)> {
 mod tests {
 
     use super::*;
-    use filestorage::util;
-    use filestorage::util::*;
+    use util;
+    use util::*;
 
     #[test]
     fn works() {

@@ -3,9 +3,9 @@ use std;
 use rmp_serde;
 use serde::Serialize;
 
-use filestorage;
-use filestorage::errors::*;
-use filestorage::util::*;
+use storage;
+use errors::*;
+use util::*;
 
 use msgparse::{Zeo, ZeoIter};
 
@@ -49,7 +49,7 @@ macro_rules! error_respond {
 
 const NIL: Option<u32> = None;
 
-fn reader(fs: Arc<filestorage::FileStorage>,
+fn reader(fs: Arc<storage::FileStorage>,
           stream: std::net::TcpStream,
           sender: std::sync::mpsc::Sender<Zeo>)
           -> Result<()> {
@@ -73,7 +73,7 @@ fn reader(fs: Arc<filestorage::FileStorage>,
                 break;          // onward
             },
             Zeo::LoadBefore(id, oid, before) => {
-                use filestorage::LoadBeforeResult::*;
+                use storage::LoadBeforeResult::*;
                 match try!(fs.load_before(&oid, &before)) {
                     Loaded(data, tid, Some(end)) => {
                             respond!(sender, id, (data, tid, end));
@@ -111,7 +111,7 @@ fn reader(fs: Arc<filestorage::FileStorage>,
     }
 }
 
-fn writer(fs: Arc<filestorage::FileStorage>,
+fn writer(fs: Arc<storage::FileStorage>,
           mut stream: std::net::TcpStream,
           receiver: std::sync::mpsc::Receiver<Zeo>)
           -> Result<()> {
@@ -134,7 +134,7 @@ fn main() {
 
     // To do, options :)
     let fs = Arc::new(
-        filestorage::FileStorage::open(String::from("data.fs")).unwrap());
+        storage::FileStorage::open(String::from("data.fs")).unwrap());
     
     let listener = std::net::TcpListener::bind("127.0.0.1:8080").unwrap();
 
