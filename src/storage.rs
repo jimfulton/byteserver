@@ -48,14 +48,14 @@ pub struct Voted<C: Client> {
     id: Tid,
     pos: u64,
     tid: Tid,
+    length: u64,
     index: index::Index,
     finished: Option<C>,
 }
 
 pub trait Client: PartialEq + Send + Clone {
-    fn finished(&self, tid: &Tid) -> Result<()>;
+    fn finished(&self, tid: &Tid, len: u64, size: u64) -> Result<()>;
     fn invalidate(&self, tid: &Tid, oids: &Vec<Oid>) -> Result<()>;
-    fn info(&self, len: u64, size: u64) -> Result<()>;
     fn close(&self);
 }
 
@@ -259,11 +259,12 @@ impl<C: Client> FileStorage<C> {
             let tid = self.new_tid();
             let pos = try!(file.seek(io::SeekFrom::End(0))
                            .chain_err(|| "seek end"));
-            let index = try!(trans.stage(tid, &mut file)
-                             .chain_err(|| "trans stage"));
+            let (index, length) =
+                try!(trans.stage(tid, &mut file)
+                     .chain_err(|| "trans stage"));
             voted.push_front(
                 Voted { id: trans.id, pos: pos, tid: tid, index: index,
-                        finished: None });
+                        finished: None, length: length });
         }
         else {
             try!(trans.unlocked());
@@ -293,12 +294,13 @@ impl<C: Client> FileStorage<C> {
                     try!(file.write_all(TRANSACTION_MARKER)
                          .chain_err(|| "writing trans marker tpc_finish"));
 
-                    {
+                    let len = {
                         let mut index = self.index.lock().unwrap();
                         for (k, pos) in v.index.iter() {
                             index.insert(k.clone(), *pos + v.pos);
-                        }
-                    }
+                        };
+                        index.len() as u64
+                    };
 
                     let oids: Vec<Oid> = v.index.keys()
                         .map(| oid | oid.clone())
@@ -313,7 +315,8 @@ impl<C: Client> FileStorage<C> {
                             }
                         }
                     }
-                    if finished.finished(&v.tid).is_err() {
+                    if finished.finished(&v.tid, len, v.pos + v.length)
+                        .is_err() {
                         clients_to_remove.push(finished.clone());
                     };
                     clients.retain(| c | ! clients_to_remove.contains(&c));

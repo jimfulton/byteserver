@@ -264,26 +264,30 @@ impl<'store, 't> Transaction<'store> {
     }
 
     pub fn stage(&mut self, tid: Tid, mut out: &mut File)
-                 -> io::Result<Index> {
-        if let TransactionState::Voting(ref mut data) = self.state {
-            // Update tids in temp file
-            try!(data.save_tid(tid, self.index.len() as u32));
-            let mut file = data.filep.borrow_mut();
-            try!(file.seek(io::SeekFrom::Start(0)));
-
-            data.length += 8;
-            assert_eq!(try!(io::copy(&mut *file, &mut out)), data.length);
-
-            // Truncate to 0 in hopes of avoiding write to disk
-            try!(file.set_len(0));
-        }          
-        else { return Err(io_error("Invalid trans state")) }
+                 -> io::Result<(Index, u64)> {
+        let length =
+            if let TransactionState::Voting(ref mut data) = self.state {
+                // Update tids in temp file
+                try!(data.save_tid(tid, self.index.len() as u32));
+                let mut file = data.filep.borrow_mut();
+                try!(file.seek(io::SeekFrom::Start(0)));
+                
+                data.length += 8;
+                assert_eq!(try!(io::copy(&mut *file, &mut out)), data.length);
+                
+                // Truncate to 0 in hopes of avoiding write to disk
+                try!(file.set_len(0));
+                data.length
+            }
+        else {
+            return Err(io_error("Invalid trans state"))
+        };
         self.state = TransactionState::Voted;
 
         let mut index = Index::new();
         std::mem::swap(&mut index, &mut self.index);
 
-        Ok(index)
+        Ok((index, length))
     }
 }
 
@@ -403,10 +407,11 @@ pub mod tests {
 
         let t2 = pool.get().unwrap();
         let mut file = t2.borrow_mut();
-        let index = trans.stage(p64(1234567891), &mut file).unwrap();
+        let (index, tsize) = trans.stage(p64(1234567891), &mut file).unwrap();
 
         // Now, we'll verify the saved data.
         let l = file.seek(io::SeekFrom::End(0)).unwrap();
+        assert_eq!(tsize, l);
         seek(&mut *file, 0).unwrap();
         assert_eq!(&read4(&mut *file).unwrap(), b"PPPP");
         let th = records::TransactionHeader::read(&mut *file).unwrap();
@@ -491,12 +496,13 @@ pub mod tests {
         assert_eq!(pool.len(), 0);
         
         let mut file = t2.borrow_mut();
-        let index = trans.stage(p64(1234567891), &mut file).unwrap();
+        let (index, tsize) = trans.stage(p64(1234567891), &mut file).unwrap();
 
         assert_eq!(pool.len(), 1); // The transaction's tmp file ws returned.
 
         // Now, we'll verify the saved data.
         let l = file.seek(io::SeekFrom::End(0)).unwrap();
+        assert_eq!(tsize, l);
         seek(&mut *file, 0).unwrap();
         assert_eq!(&read4(&mut *file).unwrap(), b"PPPP");
         let th = records::TransactionHeader::read(&mut *file).unwrap();

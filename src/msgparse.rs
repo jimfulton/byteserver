@@ -34,7 +34,7 @@ pub enum Zeo {
     End,
     Register(i64, String, bool),
     LoadBefore(i64, Oid, Tid),
-    Finished(Tid),
+    Finished(Tid, u64, u64),
     Invalidate(Tid, Vec<Oid>),
 }
 

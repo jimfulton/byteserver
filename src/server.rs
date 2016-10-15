@@ -146,14 +146,13 @@ impl PartialEq for Client {
 }
 
 impl storage::Client for Client {
-    fn finished(&self, tid: &Tid) -> Result<()>  {
-        self.send.send(Zeo::Finished(tid.clone())).chain_err(|| "")
+    fn finished(&self, tid: &Tid, len: u64, size: u64) -> Result<()>  {
+        self.send.send(Zeo::Finished(tid.clone(), len, size)).chain_err(|| "")
     }
     fn invalidate(&self, tid: &Tid, oids: &Vec<Oid>) -> Result<()>  {
         self.send.send(Zeo::Invalidate(
             tid.clone(), oids.clone())).chain_err(|| "")
     }
-    fn info(&self, len: u64, size: u64) -> Result<()>  { Ok(()) }
     fn close(&self) {}
 }
 

@@ -6,7 +6,7 @@ use byteserver::errors::*;
 
 enum ClientMessage {
     Locked(Tid),
-    Finished(Tid),
+    Finished(Tid, u64, u64),
     Invalidate(Tid, Vec<Oid>),
 }
 
@@ -30,16 +30,13 @@ impl PartialEq for Client {
 }
 
 impl byteserver::storage::Client for Client {
-    fn finished(&self, tid: &Tid) -> Result<()> {
-        self.send.send(ClientMessage::Finished(tid.clone())).chain_err(|| "")
+    fn finished(&self, tid: &Tid, len:u64, size: u64) -> Result<()> {
+        self.send.send(ClientMessage::Finished(tid.clone(), len, size))
+            .chain_err(|| "")
     }
     fn invalidate(&self, tid: &Tid, oids: &Vec<Oid>) -> Result<()> {
         self.send.send(ClientMessage::Invalidate(
             tid.clone(), oids.clone())).chain_err(|| "")
-    }
-    fn info(&self, len: u64, size: u64) -> Result<()> {
-        let _ = (len, size);
-        Ok(())
     }
     fn close(&self) {}
 }
@@ -75,7 +72,11 @@ fn store() {
     
     fs.tpc_finish(&trans.id, client.clone()).unwrap();
     let tid0 = match receive.recv().unwrap() {
-        ClientMessage::Finished(tid) => tid,
+        ClientMessage::Finished(tid, len, size) => {
+            assert_eq!(len, 2);
+            assert_eq!(size, 4216);
+            tid
+        },
         _ => panic!("bad message"),
     };
     assert!(receive.try_recv().is_err());
@@ -138,7 +139,11 @@ fn store() {
     
     fs.tpc_finish(&trans.id, client.clone()).unwrap();
     let tid1 = match receive.recv().unwrap() {
-        ClientMessage::Finished(tid) => tid,
+        ClientMessage::Finished(tid, len, size) => {
+            assert_eq!(len, 2);
+            assert_eq!(size, 4296);
+            tid
+        },
         _ => panic!("bad message"),
     };
     assert!(receive.try_recv().is_err());
