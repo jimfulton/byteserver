@@ -28,6 +28,7 @@ macro_rules! args {
     )
 }
 
+#[derive(Debug, PartialEq)]
 pub enum Zeo {
     Error(i64, &'static str, &'static str),
     Raw(Vec<u8>),
@@ -38,24 +39,24 @@ pub enum Zeo {
     Invalidate(Tid, Vec<Oid>),
 }
 
-pub struct ZeoIter {
-    stream: std::net::TcpStream,
+pub struct ZeoIter<T: io::Read> {
+    reader: T,
     buf: [u8; 1<<16],
     input: Vec<u8>,
 }
 
 static HEARTBEAT_PREFIX: [u8; 2] = [147, 255];
 
-impl ZeoIter {
+impl<T: io::Read> ZeoIter<T> {
 
-    pub fn new(stream: std::net::TcpStream) -> ZeoIter {
-        ZeoIter { stream: stream, buf: [0u8; 1<<16], input: vec![] }
+    pub fn new(reader: T) -> ZeoIter<T> {
+        ZeoIter { reader: reader, buf: [0u8; 1<<16], input: vec![] }
     }
 
     fn read_want(&mut self, want: usize) -> Result<bool> {
         while self.input.len() < want {
-            let n = try!(self.stream.read(&mut self.buf)
-                         .chain_err(|| "reading stream"));
+            let n = try!(self.reader.read(&mut self.buf)
+                         .chain_err(|| "reading"));
             if n > 0 {
                 self.input.extend_from_slice(&self.buf[..n]);
             }
@@ -103,12 +104,12 @@ impl ZeoIter {
 
 fn pre_parse(mut reader: &mut io::Read)
              -> Result<(i64, String)> {
-    if try!(rmp::decode::read_array_size(&mut reader)
-            .chain_err(|| "get mess size")) != 3 {
-        return Err("Bad array size".into());
+    let array_size = try!(rmp::decode::read_array_size(&mut reader)
+                          .chain_err(|| "get mess size"));
+    if array_size != 3 {
+        return Err(format!("Bad array size {}", array_size).into());
     }
-    let id = try!(rmp::decode::read_i64_loosely(&mut reader)
-                  .chain_err(|| "reading async flag"));
+    let id: i64 = try!(decode!(&mut reader).chain_err(|| "reading id"));
     let method: String = try!(decode!(&mut reader));
     Ok((id, method))
 }
@@ -134,3 +135,45 @@ fn parse_message(mut reader: &mut io::Read) -> Result<Zeo> {
     })
 }
 
+
+// ======================================================================
+
+#[cfg(test)]
+mod tests {
+
+    use super::*;
+    use std::io;
+
+    #[test]
+    fn works() {
+        let mut buf: Vec<u8> = vec![];
+
+        // Handshake, M5
+        buf.extend_from_slice(b"\x00\x00\x00\x02M5");
+        // (1, 'register', '1', false)
+        buf.extend_from_slice(
+            b"\x00\x00\x00\x0f\x93\x01\xa8register\x92\xa11\xc2");
+        // (2, 'loadBefore', (b"\0\0\0\0\0\0\0\0", b"\1\1\1\1\1\1\1\1"))
+        buf.extend_from_slice(
+            &[0, 0, 0, 34, 147, 2, 170, 108, 111, 97, 100, 66, 101,
+              102, 111, 114, 101, 146, 196, 8, 0, 0, 0, 0, 0, 0, 0, 0,
+              196, 8, 1, 1, 1, 1, 1, 1, 1, 1]);
+        let reader = io::Cursor::new(buf);
+
+        let mut it = ZeoIter::new(reader);
+        assert_eq!(&it.next_vec().unwrap(), b"M5");
+        match it.next().unwrap() {
+            Zeo::Register(1, storage, false) => {
+                assert_eq!(&storage, "1");
+            },
+            _ => panic!("bad match")
+        }
+        match it.next().unwrap() {
+            Zeo::LoadBefore(2, oid, tid) => {
+                assert_eq!(oid, [0u8; 8]);
+                assert_eq!(tid, [1u8; 8]);
+            },
+            _ => panic!("bad match")
+        }
+    }
+}
