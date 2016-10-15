@@ -30,7 +30,7 @@ pub struct Conflict {
     pub data: Bytes,
 }
 
-pub struct FileStorage {
+pub struct FileStorage<C: Client> {
     path: String,
     file: Mutex<File>,
     index: Mutex<index::Index>,
@@ -39,22 +39,30 @@ pub struct FileStorage {
     last_tid: Mutex<Tid>,
     committed_tid: Mutex<Tid>,
     locker: Mutex<lock::LockManager>,
-    voted: Mutex<VecDeque<Voted>>,
+    voted: Mutex<VecDeque<Voted<C>>>,
+    clients: Mutex<Vec<C>>,
     // TODO header: FileHeader,
 }
 
-pub struct Voted {
+pub struct Voted<C: Client> {
     id: Tid,
     pos: u64,
     tid: Tid,
     index: index::Index,
-    finished: Option<Box<Fn(Tid)>>,
+    finished: Option<C>,
 }
 
-impl FileStorage {
+pub trait Client: PartialEq + Send + Clone {
+    fn finished(&self, tid: &Tid) -> Result<()>;
+    fn invalidate(&self, tid: &Tid, oids: &Vec<Oid>) -> Result<()>;
+    fn info(&self, len: u64, size: u64) -> Result<()>;
+    fn close(&self);
+}
+
+impl<C: Client> FileStorage<C> {
 
     fn new(path: String, file: File, index: index::Index, last_tid: Tid)
-           -> io::Result<FileStorage> {
+           -> io::Result<FileStorage<C>> {
         Ok(FileStorage {
             readers: pool::FilePool::new(
                 pool::ReadFileFactory { path: path.clone() }, 9),
@@ -67,10 +75,11 @@ impl FileStorage {
             last_tid: Mutex::new(last_tid),
             locker: Mutex::new(lock::LockManager::new()),
             voted: Mutex::new(VecDeque::new()),
+            clients: Mutex::new(Vec::new()),
         })
     }
 
-    pub fn open(path: String) -> io::Result<FileStorage> {
+    pub fn open(path: String) -> io::Result<FileStorage<C>> {
         let mut file = try!(OpenOptions::new()
                             .read(true).write(true).create(true)
                             .open(&path));
@@ -81,10 +90,23 @@ impl FileStorage {
         }
         else {
             records::FileHeader::read(&mut file); // TODO use header info
-            let (index, last_tid) = try!(FileStorage::load_index(
+            let (index, last_tid) = try!(FileStorage::<C>::load_index(
                 &(path.clone() + INDEX_SUFFIX), &mut file, size));
             FileStorage::new(path, file, index, last_tid)
         }
+    }
+
+    pub fn add_client(&self, client: C) {
+        self.clients.lock().unwrap().push(client);
+    }
+
+    pub fn remove_client(&self, client: C) {
+        let mut clients = self.clients.lock().unwrap();
+        clients.retain(| c | c != &client);
+    }
+
+    pub fn client_count(&self) -> usize {
+        self.clients.lock().unwrap().len()
     }
 
     fn load_index(path: &str, mut file: &File, size: u64)
@@ -251,7 +273,7 @@ impl FileStorage {
         Ok(conflicts)
     }
 
-    pub fn tpc_finish(&self, id: &Tid, finished: Box<Fn(Tid)>) -> Result<()> {
+    pub fn tpc_finish(&self, id: &Tid, finished: C) -> Result<()> {
         let mut voted = self.voted.lock().unwrap();
 
         for v in voted.iter_mut() {
@@ -260,7 +282,7 @@ impl FileStorage {
                 break;
             }
         }
-        
+
         while voted.len() > 0 {
             {
                 let ref mut v = voted[0];
@@ -277,9 +299,25 @@ impl FileStorage {
                             index.insert(k.clone(), *pos + v.pos);
                         }
                     }
-                    finished(v.tid);
+
+                    let oids: Vec<Oid> = v.index.keys()
+                        .map(| oid | oid.clone())
+                        .collect();
+                    let mut clients = self.clients.lock().unwrap();
+                    let mut clients_to_remove: Vec<C> = vec![];
+                    
+                    for client in clients.iter() {
+                        if client != finished {
+                            if client.invalidate(&v.tid, &oids).is_err() {
+                                clients_to_remove.push((*client).clone());
+                            }
+                        }
+                    }
+                    if finished.finished(&v.tid).is_err() {
+                        clients_to_remove.push(finished.clone());
+                    };
+                    clients.retain(| c | ! clients_to_remove.contains(&c));
                     self.locker.lock().unwrap().release(&v.id);
-                    // TODO notify other clents, v.oids
                 }
                 else {
                     break;
@@ -295,77 +333,5 @@ impl FileStorage {
     }
 }
 
-unsafe impl std::marker::Send for FileStorage {}
-unsafe impl std::marker::Sync for FileStorage {}
-
-
-fn basic_update() {
-    let fs = FileStorage::open(String::from("data.fs")).unwrap();
-
-    let mut t = fs.tpc_begin(b"", b"", b"").unwrap();
-    t.save(Z64, Z64, b"xxxx").unwrap();
-    t.save(p64(1), Z64, b"yyyy").unwrap();
-
-    let (tx, rx) = std::sync::mpsc::channel();
-    fs.lock(&t, Box::new(move | id | tx.send(true).unwrap()));
-    rx.recv().unwrap();
-    t.locked().unwrap();
-    let conflicts = fs.stage(&mut t).unwrap();
-    assert_eq!(conflicts.len(), 0);
-    fs.tpc_finish(&t.id, Box::new(
-        | tid | println!("{:?}", tid))).unwrap();
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-    
+unsafe impl<C: Client> std::marker::Send for FileStorage<C> {}
+unsafe impl<C: Client> std::marker::Sync for FileStorage<C> {}

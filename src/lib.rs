@@ -16,7 +16,7 @@ extern crate error_chain;
 #[macro_use]
 pub mod util;
 
-mod errors;
+pub mod errors;
 pub mod storage;
 mod index;
 mod lock;

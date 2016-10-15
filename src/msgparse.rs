@@ -34,6 +34,8 @@ pub enum Zeo {
     End,
     Register(i64, String, bool),
     LoadBefore(i64, Oid, Tid),
+    Finished(Tid),
+    Invalidate(Tid, Vec<Oid>),
 }
 
 pub struct ZeoIter {

@@ -2,6 +2,47 @@ extern crate byteserver;
 
 use byteserver::util;
 use byteserver::util::*;
+use byteserver::errors::*;
+
+enum ClientMessage {
+    Locked(Tid),
+    Finished(Tid),
+    Invalidate(Tid, Vec<Oid>),
+}
+
+#[derive(Debug, Clone)]
+struct Client {
+    name: String,
+    send: std::sync::mpsc::Sender<ClientMessage>,
+}
+
+impl Client {
+    fn new(name: &str) -> (Client, std::sync::mpsc::Receiver<ClientMessage>) {
+        let (send, receive) = std::sync::mpsc::channel();
+        (Client { name: String::from(name), send: send }, receive)
+    }
+}
+
+impl PartialEq for Client {
+    fn eq(&self, other: &Client) -> bool {
+        self.name == other.name
+    }
+}
+
+impl byteserver::storage::Client for Client {
+    fn finished(&self, tid: &Tid) -> Result<()> {
+        self.send.send(ClientMessage::Finished(tid.clone())).chain_err(|| "")
+    }
+    fn invalidate(&self, tid: &Tid, oids: &Vec<Oid>) -> Result<()> {
+        self.send.send(ClientMessage::Invalidate(
+            tid.clone(), oids.clone())).chain_err(|| "")
+    }
+    fn info(&self, len: u64, size: u64) -> Result<()> {
+        let _ = (len, size);
+        Ok(())
+    }
+    fn close(&self) {}
+}
 
 #[test]
 fn store() {
@@ -9,23 +50,45 @@ fn store() {
     let tmpdir = util::test::dir();
     let fs = byteserver::storage::FileStorage::open(
         util::test::test_path(&tmpdir, "data.fs")).unwrap();
-    let (send, receive) = std::sync::mpsc::channel();
+
+    let (client, receive) = Client::new("0");
+    let mut clients = vec![Client::new("1"), Client::new("2")];
+    fs.add_client(client.clone());
+    for &(ref c, _) in clients.iter() {
+        fs.add_client(c.clone());
+    }
 
     // First transaction:
     let mut trans = fs.tpc_begin(b"", b"", b"").unwrap();
     trans.save(p64(0), Z64, b"zzzz").unwrap();
     trans.save(p64(1), Z64, b"oooo").unwrap();
-    let tx = send.clone();
-    fs.lock(&trans, Box::new(move | id | tx.send(id).unwrap())).unwrap();
-    assert_eq!(receive.recv().unwrap(), trans.id);
+    let tx = client.send.clone();
+    fs.lock(&trans, Box::new(
+        move | id | tx.send(ClientMessage::Locked(id)).unwrap())).unwrap();
+    match receive.recv().unwrap() {
+        ClientMessage::Locked(tid) => assert_eq!(tid, trans.id),
+        _ => panic!("bad message"),
+    }
     trans.locked().unwrap();
     let conflicts = fs.stage(&mut trans).unwrap();
     assert_eq!(conflicts.len(), 0);
     
-    let tx = send.clone();
-    fs.tpc_finish(&trans.id, Box::new(
-        move | tid | tx.send(tid).unwrap())).unwrap();
-    let tid0 = receive.recv().unwrap();
+    fs.tpc_finish(&trans.id, client.clone()).unwrap();
+    let tid0 = match receive.recv().unwrap() {
+        ClientMessage::Finished(tid) => tid,
+        _ => panic!("bad message"),
+    };
+    assert!(receive.try_recv().is_err());
+    for &(_, ref receive) in clients.iter() {
+        match receive.recv().unwrap() {
+            ClientMessage::Invalidate(tid, oids) => {
+                assert_eq!(tid, tid0);
+                assert_eq!(oids, vec![p64(0), p64(1)]);
+            },
+            _ => panic!("bad message"),
+        }
+        assert!(receive.try_recv().is_err());
+    }
 
     use byteserver::storage::LoadBeforeResult::*;
     
@@ -38,12 +101,20 @@ fn store() {
         _ => panic!("unexpeted result {:?}", r),
     }
 
+    // Drop one of the clients.  We should see the storage client
+    // count drop after it tries to send to them.
+    clients.pop();
+
     // Second, conflict and then success:
     let mut trans = fs.tpc_begin(b"", b"", b"").unwrap();
     trans.save(p64(1), Z64, b"ooo1").unwrap();
-    let tx = send.clone();
-    fs.lock(&trans, Box::new(move | id | tx.send(id).unwrap())).unwrap();
-    assert_eq!(receive.recv().unwrap(), trans.id);
+    let tx = client.send.clone();
+    fs.lock(&trans, Box::new(
+        move | id | tx.send(ClientMessage::Locked(id)).unwrap())).unwrap();
+    match receive.recv().unwrap() {
+        ClientMessage::Locked(tid) => assert_eq!(tid, trans.id),
+        _ => panic!("bad message"),
+    }
     trans.locked().unwrap();
     let conflicts = fs.stage(&mut trans).unwrap();
 
@@ -54,17 +125,35 @@ fn store() {
                         data: b"ooo1".to_vec() }]);
 
     trans.save(p64(1), tid0, b"ooo2").unwrap();
-    let tx = send.clone();
-    fs.lock(&trans, Box::new(move | id | tx.send(id).unwrap())).unwrap();
-    assert_eq!(receive.recv().unwrap(), trans.id);
+    let tx = client.send.clone();
+    fs.lock(&trans, Box::new(
+        move | id | tx.send(ClientMessage::Locked(id)).unwrap())).unwrap();
+    match receive.recv().unwrap() {
+        ClientMessage::Locked(tid) => assert_eq!(tid, trans.id),
+        _ => panic!("bad message"),
+    }
     trans.locked().unwrap();
     let conflicts = fs.stage(&mut trans).unwrap();
     assert_eq!(conflicts.len(), 0);
     
-    let tx = send.clone();
-    fs.tpc_finish(&trans.id, Box::new(
-        move | tid | tx.send(tid).unwrap())).unwrap();
-    let tid1 = receive.recv().unwrap();
+    fs.tpc_finish(&trans.id, client.clone()).unwrap();
+    let tid1 = match receive.recv().unwrap() {
+        ClientMessage::Finished(tid) => tid,
+        _ => panic!("bad message"),
+    };
+    assert!(receive.try_recv().is_err());
+    for &(_, ref receive) in clients.iter() {
+        match receive.recv().unwrap() {
+            ClientMessage::Invalidate(tid, oids) => {
+                assert_eq!(tid, tid1);
+                assert_eq!(oids, vec![p64(1)]);
+            },
+            _ => panic!("bad message"),
+        }
+        assert!(receive.try_recv().is_err());
+    }
+
+    assert_eq!(fs.client_count(), 2);
 
     let r = fs.load_before(&p64(1), &tid1).unwrap();
     match r {
@@ -84,5 +173,5 @@ fn store() {
         },
         _ => panic!("unexpeted result {:?}", r),
     }
-
+    
 }
