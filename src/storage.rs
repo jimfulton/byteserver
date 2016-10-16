@@ -351,6 +351,26 @@ impl<C: Client> FileStorage<C> {
         Ok(())
     }
 
+    pub fn tpc_abort(&self, id: &Tid) {
+        let mut voted = self.voted.lock().unwrap();
+        let l = voted.len();
+        voted.retain(
+            | v | {
+                if &v.id == id {
+                    self.locker.lock().unwrap().release(id);
+                    false
+                }
+                else {
+                    true
+                }
+            }
+        );
+        if voted.len() == l {
+            // Mat still need to unlock
+            self.locker.lock().unwrap().release(id);
+        }
+    }
+    
     pub fn last_transaction(&self) -> Tid {
         self.committed_tid.lock().unwrap().clone()
     }

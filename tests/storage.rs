@@ -180,5 +180,68 @@ fn store() {
         },
         _ => panic!("unexpeted result {:?}", r),
     }
+}
+
+#[test]
+fn abort() {
+
+    let tmpdir = util::test::dir();
+    let fs = byteserver::storage::FileStorage::open(
+        util::test::test_path(&tmpdir, "data.fs")).unwrap();
+
+    let (client, receive) = Client::new("0");
+    fs.add_client(client.clone());
+ 
+    let mut trans = fs.tpc_begin(b"", b"", b"").unwrap();
+    trans.save(p64(0), Z64, b"zzzz").unwrap();
+    let tx = client.send.clone();
+    fs.lock(&trans, Box::new(
+        move | id | tx.send(ClientMessage::Locked(id)).unwrap())).unwrap();
+    match receive.recv().unwrap() {
+        ClientMessage::Locked(tid) => assert_eq!(tid, trans.id),
+        _ => panic!("bad message"),
+    }
+    trans.locked().unwrap();
+
+    // Abort releases the lock, so we can start over:
+    fs.tpc_abort(&trans.id);
+
+    let mut trans = fs.tpc_begin(b"", b"", b"").unwrap();
+    trans.save(p64(0), Z64, b"zzzz").unwrap();
+    let tx = client.send.clone();
+    fs.lock(&trans, Box::new(
+        move | id | tx.send(ClientMessage::Locked(id)).unwrap())).unwrap();
+    match receive.recv().unwrap() {
+        ClientMessage::Locked(tid) => assert_eq!(tid, trans.id),
+        _ => panic!("bad message"),
+    }
+    trans.locked().unwrap();    
+    let conflicts = fs.stage(&mut trans).unwrap();
+    assert_eq!(conflicts.len(), 0);
+    fs.tpc_abort(&trans.id);
+
+    // Abort releases locks *and* prevents the transaction from committing.
+
+    // We'll go again, which would fail if the previous attempts had
+    // committed:
     
+    let mut trans = fs.tpc_begin(b"", b"", b"").unwrap();
+    trans.save(p64(0), Z64, b"zzzz").unwrap();
+    let tx = client.send.clone();
+    fs.lock(&trans, Box::new(
+        move | id | tx.send(ClientMessage::Locked(id)).unwrap())).unwrap();
+    match receive.recv().unwrap() {
+        ClientMessage::Locked(tid) => assert_eq!(tid, trans.id),
+        _ => panic!("bad message"),
+    }
+    trans.locked().unwrap();    
+    let conflicts = fs.stage(&mut trans).unwrap();
+    assert_eq!(conflicts.len(), 0);
+    fs.tpc_finish(&trans.id, client.clone()).unwrap();
+    match receive.recv().unwrap() {
+        ClientMessage::Finished(_, _, _) => {
+        },
+        _ => panic!("bad message"),
+    }
+    assert!(receive.try_recv().is_err());
 }
