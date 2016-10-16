@@ -294,6 +294,17 @@ impl<C: Client> FileStorage<C> {
         for v in voted.iter_mut() {
             if v.id == *id {
                 v.finished = Some(finished);
+
+                // Update the transaction maker right away, so if we
+                // restart, the transaction will be there.  We don't
+                // update the index and notify clients until earlier
+                // voted transactions have finished.
+                let mut file = self.file.lock().unwrap();
+                try!(file.seek(io::SeekFrom::Start(v.pos))
+                     .chain_err(|| "seeking tpc_finish"));
+                try!(file.write_all(TRANSACTION_MARKER)
+                     .chain_err(|| "writing trans marker tpc_finish"));
+                try!(file.sync_all().chain_err(|| "fsync"));
                 break;
             }
         }
@@ -302,12 +313,6 @@ impl<C: Client> FileStorage<C> {
             {
                 let ref mut v = voted[0];
                 if let Some(ref finished) = v.finished {
-                    let mut file = self.file.lock().unwrap();
-                    try!(file.seek(io::SeekFrom::Start(v.pos))
-                         .chain_err(|| "seeking tpc_finish"));
-                    try!(file.write_all(TRANSACTION_MARKER)
-                         .chain_err(|| "writing trans marker tpc_finish"));
-
                     let len = {
                         let mut index = self.index.lock().unwrap();
                         for (k, pos) in v.index.iter() {
