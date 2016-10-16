@@ -10,10 +10,12 @@ use byteorder::BigEndian;
 use errors::*;
 use util::*;
 
+#[macro_export]
 macro_rules! decode {
     ($data: expr) => (
         {
-            let mut deserializer = rmp_serde::Deserializer::new($data);
+            let data = $data;
+            let mut deserializer = rmp_serde::Deserializer::new(data);
             Deserialize::deserialize(&mut deserializer).chain_err(|| "decode")
         }
     )
@@ -33,8 +35,17 @@ pub enum Zeo {
     Error(i64, &'static str, &'static str),
     Raw(Vec<u8>),
     End,
+
     Register(i64, String, bool),
     LoadBefore(i64, Oid, Tid),
+    GetInfo(i64),
+    TpcBegin(u64, Bytes, Bytes, Bytes),
+    Storea(Oid, Tid, Bytes, u64),
+    Vote(i64, u64),
+    TpcFinish(i64, u64),
+    TpcAbort(i64, u64),
+    Ping(i64),
+
     Finished(Tid, u64, u64),
     Invalidate(Tid, Vec<Oid>),
 }
@@ -118,11 +129,6 @@ fn parse_message(mut reader: &mut io::Read) -> Result<Zeo> {
     let (id, method) = try!(pre_parse(&mut reader));
 
     Ok(match method.as_ref() {
-        "register" => {
-            let (storage, read_only): (String, bool) =
-                try!(decode!(&mut reader));
-            Zeo::Register(id, storage, read_only)
-        },
         "loadBefore" => {
             let (oid, before): (ByteBuf, ByteBuf) =
                 try!(decode!(&mut reader));
@@ -130,6 +136,39 @@ fn parse_message(mut reader: &mut io::Read) -> Result<Zeo> {
             let before = try!(read8(&mut (&*before))
                               .chain_err(|| "loadBefore before"));
             Zeo::LoadBefore(id, oid, before)
+        },
+        "ping" => Zeo::Ping(id),
+        "tpc_begin" => {
+            let (txn, user, desc, ext, _, _): (
+                u64, ByteBuf, ByteBuf, ByteBuf, Option<ByteBuf>, String) =
+                try!(decode!(&mut reader));
+            Zeo::TpcBegin(txn, user.to_vec(), desc.to_vec(), ext.to_vec())
+        },
+        "storea" => {
+            let (oid, committed, data, txn): (ByteBuf, ByteBuf, ByteBuf, u64) =
+                try!(decode!(&mut reader));
+            let oid = try!(read8(&mut (&*oid)).chain_err(|| "storea oid"));
+            let committed = try!(read8(&mut (&*committed))
+                                 .chain_err(|| "storea committed"));
+            Zeo::Storea(oid, committed, data.to_vec(), txn)
+        },
+        "vote" => {
+            let (txn,): (u64,) = try!(decode!(&mut reader));
+            Zeo::Vote(id, txn)
+        },
+        "tpc_finish" => {
+            let (txn,): (u64,) = try!(decode!(&mut reader));
+            Zeo::TpcFinish(id, txn)
+        },
+        "tpc_abort" => {
+            let (txn,): (u64,) = try!(decode!(&mut reader));
+            Zeo::TpcAbort(id, txn)
+        },
+        "get_info" => Zeo::GetInfo(id),
+        "register" => {
+            let (storage, read_only): (String, bool) =
+                try!(decode!(&mut reader));
+            Zeo::Register(id, storage, read_only)
         },
         _ => return Err("bad method".into())
     })

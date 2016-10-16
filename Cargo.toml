@@ -15,5 +15,8 @@ tempdir = "*"
 tempfile = "*"
 time = "*"
 
+[dev-dependencies]
+pipe = "*"
+
 [profile.release]
 debug = true

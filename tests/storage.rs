@@ -90,6 +90,7 @@ fn store() {
         }
         assert!(receive.try_recv().is_err());
     }
+    assert_eq!(fs.last_transaction(), tid0);
 
     use byteserver::storage::LoadBeforeResult::*;
     
@@ -157,6 +158,7 @@ fn store() {
         }
         assert!(receive.try_recv().is_err());
     }
+    assert_eq!(fs.last_transaction(), tid1);
 
     assert_eq!(fs.client_count(), 2);
 

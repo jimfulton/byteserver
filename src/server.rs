@@ -1,29 +1,16 @@
 use std;
 
-use rmp_serde;
-use serde::Serialize;
-
 use storage;
+use transaction;
 use errors::*;
 use util::*;
 
 use msgparse::{Zeo, ZeoIter};
-
-macro_rules! encode {
-    ($data: expr) => (
-        {
-            let mut buf: Vec<u8> = vec![];
-            {
-                let mut encoder = rmp_serde::Serializer::new(&mut buf);
-                ($data).serialize(&mut encoder)
-            }.and(Ok(buf)).chain_err(|| "encode")
-        }
-    )
-}
+use msgencode::*;
 
 macro_rules! response {
     ($id: expr, $data: expr) => (
-        try!(encode!(($id, "R", ($data))))
+        try!(sencode!(($id, "R", ($data))))
     )
 }
 
@@ -36,7 +23,7 @@ macro_rules! respond {
 
 macro_rules! error_response {
     ($id: expr, $data: expr) => (
-        try!(encode!(($id, "E", ($data))))
+        try!(sencode!(($id, "E", ($data))))
     )
 }
 
@@ -47,15 +34,15 @@ macro_rules! error_respond {
     )
 }
 
-const NIL: Option<u32> = None;
+pub const NIL: Option<u32> = None;
 
-fn reader<C: storage::Client>(
+pub fn reader<C: storage::Client, R: io::Read>(
     fs: Arc<storage::FileStorage<C>>,
-    stream: std::net::TcpStream,
+    reader: R,
     sender: std::sync::mpsc::Sender<Zeo>)
     -> Result<()> {
 
-    let mut it = ZeoIter::new(stream);
+    let mut it = ZeoIter::new(reader);
 
     // handshake
     if try!(it.next_vec()) != b"M5".to_vec() {
@@ -73,6 +60,18 @@ fn reader<C: storage::Client>(
                 respond!(sender, id, fs.last_transaction());
                 break;          // onward
             },
+            Zeo::End => {
+                sender.send(Zeo::End);
+                return Ok(())
+            },
+            _ => return Err("bad method".into())
+        }
+    }
+
+    // Main loop. We spend most of our time here.
+    loop {
+        let message = try!(it.next());
+        match message {
             Zeo::LoadBefore(id, oid, before) => {
                 use storage::LoadBeforeResult::*;
                 match try!(fs.load_before(&oid, &before)) {
@@ -92,17 +91,17 @@ fn reader<C: storage::Client>(
                     },
                 }
             },
-            Zeo::End => {
-                sender.send(Zeo::End);
-                return Ok(())
+            Zeo::Ping(id) => {
+                respond!(sender, id, NIL);
             },
-            _ => return Err("bad method".into())
-        }
-    }
-
-    // Main loop. We spend most of our time here.
-    loop {
-        match try!(it.next()) {
+            Zeo::GetInfo(id) => {
+                respond!(sender, id,
+                         std::collections::BTreeMap::<String, i64>::new())
+            },
+            Zeo::TpcBegin(_, _, _, _) | Zeo::Storea(_, _, _, _) |
+            Zeo::Vote(_, _) | Zeo::TpcFinish(_, _) |  Zeo::TpcAbort(_, _)
+                =>  try!(sender.send(message)
+                         .chain_err(|| "send error")), // Forward these
             Zeo::End => {
                 sender.send(Zeo::End);
                 return Ok(())
@@ -119,10 +118,14 @@ fn writer<C: storage::Client>(
     client: Client)
     -> Result<()> {
 
+    use std::collections::HashMap;
+    let mut transactions: HashMap<u64, transaction::Transaction> =
+        HashMap::new();
+
     for zeo in receiver.iter() {
         match zeo {
             Zeo::Error(id, name, message) => {
-                try!(stream.write_all(&try!(encode!(
+                try!(stream.write_all(&try!(sencode!(
                     (id, "E", (name, (message,)))
                 ))).chain_err(|| "stream write"));
             },
@@ -134,7 +137,7 @@ fn writer<C: storage::Client>(
 }
 
 #[derive(Debug, Clone)]
-struct Client {
+pub struct Client {
     name: String,
     send: std::sync::mpsc::Sender<Zeo>,
 }

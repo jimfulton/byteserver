@@ -13,6 +13,7 @@ pub fn size_vec(mut v: Vec<u8>) -> Vec<u8> {
     v
 }
 
+#[macro_export]
 macro_rules! sencode {
     ($data: expr) => (
         {

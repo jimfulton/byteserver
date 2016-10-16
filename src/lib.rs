@@ -3,8 +3,8 @@
 #![allow(dead_code, unused_must_use, unused_variables)]
 
 extern crate byteorder;
-extern crate rmp;
-extern crate rmp_serde;
+pub extern crate rmp;
+pub extern crate rmp_serde;
 extern crate serde;
 extern crate tempdir;
 extern crate tempfile;
@@ -16,13 +16,18 @@ extern crate error_chain;
 #[macro_use]
 pub mod util;
 
+#[macro_use]
+pub mod msgencode;
+
+#[macro_use]
+pub mod msgparse;
+
 pub mod errors;
 pub mod storage;
 mod index;
 mod lock;
-mod msgparse;
 mod pool;
 mod records;
-mod server;
+pub mod server;
 pub mod tid;
 mod transaction;

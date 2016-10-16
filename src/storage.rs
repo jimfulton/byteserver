@@ -32,6 +32,7 @@ pub struct Conflict {
 
 pub struct FileStorage<C: Client> {
     path: String,
+    voted: Mutex<VecDeque<Voted<C>>>,
     file: Mutex<File>,
     index: Mutex<index::Index>,
     readers: pool::FilePool<pool::ReadFileFactory>,
@@ -39,7 +40,6 @@ pub struct FileStorage<C: Client> {
     last_tid: Mutex<Tid>,
     committed_tid: Mutex<Tid>,
     locker: Mutex<lock::LockManager>,
-    voted: Mutex<VecDeque<Voted<C>>>,
     clients: Mutex<Vec<C>>,
     // TODO header: FileHeader,
 }
@@ -111,36 +111,50 @@ impl<C: Client> FileStorage<C> {
 
     fn load_index(path: &str, mut file: &File, size: u64)
                   -> io::Result<(index::Index, Tid)> {
-        let (mut index, segment_size, start, mut end) =
-            try!(index::load_index(path));
-            
-        io_assert!(size >= segment_size, "Index bad segment length");
-        try!(file.seek(io::SeekFrom::Start(records::HEADER_SIZE + 12)));
-        io_assert!(try!(read8(&mut file)) == start, "Index bad start");
-        try!(file.seek(io::SeekFrom::Start(segment_size - 8)));
-        io_assert!(try!(read8(&mut file)) == end, "Index bad start");
+
+        let (mut index, segment_size, mut end) =
+            if std::path::Path::new(&path).exists() {
+                let (mut index, segment_size, start, mut end) =
+                    try!(index::load_index(path));
+                io_assert!(size >= segment_size, "Index bad segment length");
+                try!(file.seek(io::SeekFrom::Start(records::HEADER_SIZE + 12)));
+                io_assert!(try!(read8(&mut file)) == start, "Index bad start");
+                try!(file.seek(io::SeekFrom::Start(segment_size - 8)));
+                io_assert!(try!(read8(&mut file)) == end, "Index bad end");
+                (index, segment_size, end)
+            }
+            else {
+                (index::Index::new(), records::HEADER_SIZE, Z64)
+            };
+
         if segment_size < size {
             // Read newer records into index
             let mut reader = io::BufReader::new(try!(file.try_clone()));
-            loop {
+            let mut pos = segment_size;
+            try!(seek(&mut reader, pos));
+            while pos < size {
                 let marker = try!(read4(&mut reader));
-                match &marker {
+                let length = match &marker {
                     m if m == TRANSACTION_MARKER => {
                         let header = try!(
                             records::TransactionHeader::read(&mut reader));
                         header.update_index(&mut reader, &mut index);
                         assert!(header.id > end);
                         end = header.id;
+                        header.length
                     },
                     m if m == PADDING_MARKER => {
-                        let length = try!(reader.read_u64::<LittleEndian>());
-                        try!(reader.seek(io::SeekFrom::Current(
-                            length as i64 - 12)));
+                        try!(reader.read_u64::<LittleEndian>())
                     },
                     _ => {
-                        io_assert!(false, "Bad record marker");
+                        io_assert!(
+                            false, &format!("Bad record marker {:?}", &marker));
+                        0
                     }
-                }
+                };
+                pos += length;
+                try!(seek(&mut reader, pos - 8));
+                assert_eq!(try!(read_u64(&mut reader)), length);
             }
         }
         Ok((index, end))
@@ -305,6 +319,7 @@ impl<C: Client> FileStorage<C> {
                     let oids: Vec<Oid> = v.index.keys()
                         .map(| oid | oid.clone())
                         .collect();
+                    *self.committed_tid.lock().unwrap() = v.tid;
                     let mut clients = self.clients.lock().unwrap();
                     let mut clients_to_remove: Vec<C> = vec![];
                     
@@ -336,5 +351,56 @@ impl<C: Client> FileStorage<C> {
     }
 }
 
+// TODO save index on drop.
+// impl std::ops::Drop for FileStorage {
+//     fn drop(&mut self) {
+//         let mut file = self.file.lock.unwrap();
+//         let index = self.index.lock().unwrap();
+//         let size = file.seek(io::SeekFrom::End(0));
+//         let 
+//         index::save_index(&self.index, &(path.clone() + INDEX_SUFFIX))
+//     }
+
+// } 
+
 unsafe impl<C: Client> std::marker::Send for FileStorage<C> {}
 unsafe impl<C: Client> std::marker::Sync for FileStorage<C> {}
+
+pub fn make_sample(path: &String, transactions: Vec<Vec<(Oid, &[u8])>>)
+                   -> Result<()> {
+    // Create a storage with some initial data
+
+    #[derive(Debug, PartialEq, Clone)]
+    struct NullClient;
+
+    impl Client for NullClient {
+        fn finished(&self, tid: &Tid, len: u64, size: u64) -> Result<()> {
+            Ok(())
+        }
+        fn invalidate(&self, tid: &Tid, oids: &Vec<Oid>) -> Result<()> {
+            Ok(())
+        }
+        fn close(&self) {}
+    }
+    
+    let fs = try!(FileStorage::open(path.clone()).chain_err(|| "open fs"));
+
+    let mut index = std::collections::BTreeMap::<Oid, Tid>::new();
+
+    for saves in transactions {
+        let mut trans = try!(fs.tpc_begin(b"", b"", b"").chain_err(|| "begin"));
+        for &(oid, v) in saves.iter() {
+            let serial = index.get(&oid).or(Some(&Z64)).unwrap().clone();
+            try!(trans.save(oid, serial, v).chain_err(|| "sample data"));
+        }
+        try!(fs.lock(&trans, Box::new(| tid | {tid;})));
+        try!(trans.locked());
+        assert_eq!(try!(fs.stage(&mut trans)).len(), 0);
+        try!(fs.tpc_finish(&trans.id, NullClient));
+        let tid = fs.last_transaction();
+        for (oid, _) in saves {
+            index.insert(oid, tid);
+        }
+    }
+    Ok(())
+}
