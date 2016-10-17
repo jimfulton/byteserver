@@ -15,7 +15,8 @@ use serde::bytes::ByteBuf;
 use byteserver::msg::*;
 use byteserver::util::*;
 use byteserver::errors::*;
-use byteserver::server;
+use byteserver::reader;
+use byteserver::writer;
 use byteserver::storage;
 use byteserver::tid;
 
@@ -35,11 +36,11 @@ fn basic() {
     storage::make_sample(
         &path, vec![vec![(Z64, b"000")], vec![(Z64, b"111")]]).unwrap();
     let fs = Arc::new(
-        storage::FileStorage::<server::Client>::open(path).unwrap());
+        storage::FileStorage::<writer::Client>::open(path).unwrap());
     let read_fs = fs.clone();
 
     std::thread::spawn(
-        move || server::reader(read_fs, reader, tx).unwrap()
+        move || reader::reader(read_fs, reader, tx).unwrap()
     );
 
     // handshake
@@ -141,7 +142,7 @@ fn basic() {
     
     // Requests that deal with transactions are merely forwarded:
     writer.write_all(
-        &sencode!((0, "tpc_begin", (42, b"u", b"d", b"e", server::NIL, " ")))
+        &sencode!((0, "tpc_begin", (42, b"u", b"d", b"e", NIL, " ")))
             .unwrap()).unwrap();
     match rx.recv().unwrap() {
         Zeo::TpcBegin(42, user, desc, ext) => {

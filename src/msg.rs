@@ -2,6 +2,7 @@ use std;
 
 use rmp;
 pub use rmp_serde;
+use serde;
 use serde::bytes::ByteBuf;
 pub use serde::{Deserialize, Serialize};
 
@@ -52,9 +53,35 @@ macro_rules! sencode {
     )
 }
 
+#[macro_export]
+macro_rules! message {
+    ($id: expr, $method: expr, $data: expr) => (
+        try!(sencode!(($id, $method, ($data))))
+    )
+}
+
+#[macro_export]
+macro_rules! response {
+    ($id: expr, $data: expr) => (
+        message!($id, "R", ($data))
+    )
+}
+
+#[macro_export]
+macro_rules! error_response {
+    ($id: expr, $data: expr) => (
+        message!($id, "E", ($data))
+    )
+}
+
+pub const NIL: Option<u32> = None;
+
+pub fn bytes(data: &[u8]) -> serde::bytes::Bytes {
+    serde::bytes::Bytes::new(data)
+}
+
 #[derive(Debug, PartialEq)]
 pub enum Zeo {
-    Error(i64, &'static str, &'static str),
     Raw(Vec<u8>),
     End,
 
@@ -68,7 +95,9 @@ pub enum Zeo {
     TpcAbort(i64, u64),
     Ping(i64),
 
-    Finished(Tid, u64, u64),
+    Locked(i64, u64),
+
+    Finished(i64, Tid, u64, u64),
     Invalidate(Tid, Vec<Oid>),
 }
 

@@ -123,7 +123,7 @@ fn store() {
     use byteserver::storage::Conflict;
     assert_eq!(
         conflicts,
-        vec![Conflict { oid: p64(1), serials: (Z64, tid0),
+        vec![Conflict { oid: p64(1), serial: Z64, committed: tid0,
                         data: b"ooo1".to_vec() }]);
 
     trans.save(p64(1), tid0, b"ooo2").unwrap();

@@ -26,7 +26,8 @@ pub enum LoadBeforeResult {
 #[derive(Debug, PartialEq)]
 pub struct Conflict {
     pub oid: Oid,
-    pub serials: (Tid, Tid),
+    pub serial: Tid,
+    pub committed: Tid,
     pub data: Bytes,
 }
 
@@ -165,7 +166,7 @@ impl<C: Client> FileStorage<C> {
         *last_tid = tid::later_than(tid::now_tid(), *last_tid);
         *last_tid
     }
-    
+
     fn lookup_pos(&self, oid: &Oid) -> Option<u64> {
         let index = self.index.lock().unwrap();
         index.get(oid).map(| pos | *pos)
@@ -253,8 +254,8 @@ impl<C: Client> FileStorage<C> {
                         let data = try!(trans.get_data(&oid));
                         conflicts.push(
                             Conflict { oid: oid, data: data,
-                                       serials: (serial, committed)
-                            });
+                                       serial: serial, committed: committed }
+                            );
                     }
                     try!(trans.set_previous(&oid, pos));
                 },
@@ -284,7 +285,7 @@ impl<C: Client> FileStorage<C> {
             try!(trans.unlocked());
             self.locker.lock().unwrap().release(&trans.id);
         }
-            
+
         Ok(conflicts)
     }
 
@@ -308,6 +309,14 @@ impl<C: Client> FileStorage<C> {
                 break;
             }
         }
+        self.handle_finished_at_voted_head(voted);
+        Ok(())
+    }
+
+
+    fn handle_finished_at_voted_head(
+        &self,
+        mut voted: std::sync::MutexGuard<VecDeque<Voted<C>>>) {
 
         while voted.len() > 0 {
             {
@@ -327,7 +336,7 @@ impl<C: Client> FileStorage<C> {
                     *self.committed_tid.lock().unwrap() = v.tid;
                     let mut clients = self.clients.lock().unwrap();
                     let mut clients_to_remove: Vec<C> = vec![];
-                    
+
                     for client in clients.iter() {
                         if client != finished {
                             if client.invalidate(&v.tid, &oids).is_err() {
@@ -337,8 +346,8 @@ impl<C: Client> FileStorage<C> {
                     }
                     if finished.finished(&v.tid, len, v.pos + v.length)
                         .is_err() {
-                        clients_to_remove.push(finished.clone());
-                    };
+                            clients_to_remove.push(finished.clone());
+                        };
                     clients.retain(| c | ! clients_to_remove.contains(&c));
                     self.locker.lock().unwrap().release(&v.id);
                 }
@@ -348,8 +357,8 @@ impl<C: Client> FileStorage<C> {
             }
             voted.pop_front();
         }
-        Ok(())
     }
+
 
     pub fn tpc_abort(&self, id: &Tid) {
         let mut voted = self.voted.lock().unwrap();
@@ -366,11 +375,12 @@ impl<C: Client> FileStorage<C> {
             }
         );
         if voted.len() == l {
-            // Mat still need to unlock
+            // May still need to unlock
             self.locker.lock().unwrap().release(id);
         }
+        self.handle_finished_at_voted_head(voted);
     }
-    
+
     pub fn last_transaction(&self) -> Tid {
         self.committed_tid.lock().unwrap().clone()
     }
@@ -382,11 +392,11 @@ impl<C: Client> FileStorage<C> {
 //         let mut file = self.file.lock.unwrap();
 //         let index = self.index.lock().unwrap();
 //         let size = file.seek(io::SeekFrom::End(0));
-//         let 
+//         let
 //         index::save_index(&self.index, &(path.clone() + INDEX_SUFFIX))
 //     }
 
-// } 
+// }
 
 unsafe impl<C: Client> std::marker::Send for FileStorage<C> {}
 unsafe impl<C: Client> std::marker::Sync for FileStorage<C> {}
@@ -407,7 +417,7 @@ pub fn make_sample(path: &String, transactions: Vec<Vec<(Oid, &[u8])>>)
         }
         fn close(&self) {}
     }
-    
+
     let fs = try!(FileStorage::open(path.clone()).chain_err(|| "open fs"));
 
     let mut index = std::collections::BTreeMap::<Oid, Tid>::new();

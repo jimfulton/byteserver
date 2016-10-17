@@ -26,5 +26,7 @@ mod lock;
 mod pool;
 mod records;
 pub mod server;
+pub mod reader;
+pub mod writer;
 pub mod tid;
 mod transaction;
