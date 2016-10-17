@@ -1,9 +1,9 @@
 use std;
 
 use rmp;
-use rmp_serde;
+pub use rmp_serde;
 use serde::bytes::ByteBuf;
-use serde::Deserialize;
+pub use serde::{Deserialize, Serialize};
 
 use byteorder::BigEndian;
 
@@ -26,6 +26,28 @@ macro_rules! args {
         {
             let args: ($types) = try!(decode!(&mut reader));
             args
+        }
+    )
+}
+
+pub fn size_vec(mut v: Vec<u8>) -> Vec<u8> {
+    let l = v.len();
+    for i in 0..4 {
+        v.insert(0, 0);
+    }
+    BigEndian::write_u32(&mut v, l as u32);
+    v
+}
+
+#[macro_export]
+macro_rules! sencode {
+    ($data: expr) => (
+        {
+            let mut buf: Vec<u8> = vec![];
+            {
+                let mut encoder = rmp_serde::Serializer::new(&mut buf);
+                ($data).serialize(&mut encoder).chain_err(|| "encode")
+            }.and(Ok(size_vec(buf)))
         }
     )
 }
@@ -82,7 +104,7 @@ impl<T: io::Read> ZeoIter<T> {
         Ok(
             if try!(self.read_want(4)) { 0 }
             else {
-                let want = (BigEndian::read_u32(&self.input) + 4) as usize; 
+                let want = (BigEndian::read_u32(&self.input) + 4) as usize;
                 if try!(self.read_want(want)) { 0 }
                 else { want }
             }
@@ -103,14 +125,14 @@ impl<T: io::Read> ZeoIter<T> {
         }
         let mut data = self.input.split_off(want as usize);
         std::mem::swap(&mut data, &mut self.input);
-        
+
         if data[4..6] == HEARTBEAT_PREFIX {
             return self.next()    // skip heartbeats
         }
         let mut reader = io::Cursor::new(data.split_off(4));
         parse_message(&mut reader)
     }
-    
+
 }
 
 fn pre_parse(mut reader: &mut io::Read)
@@ -181,10 +203,11 @@ fn parse_message(mut reader: &mut io::Read) -> Result<Zeo> {
 mod tests {
 
     use super::*;
+    use errors::*;
     use std::io;
 
     #[test]
-    fn works() {
+    fn parsing() {
         let mut buf: Vec<u8> = vec![];
 
         // Handshake, M5
@@ -215,4 +238,16 @@ mod tests {
             _ => panic!("bad match")
         }
     }
+
+    #[test]
+    fn test_size_vec() {
+        assert_eq!(size_vec(vec![1, 2, 3]), vec![0, 0, 0, 3, 1, 2, 3]);
+    }
+
+    #[test]
+    fn test_sencode() {
+        let v = sencode!((1u64, "R", 42)).unwrap();
+        assert_eq!(v, vec![0, 0, 0, 5, 147, 1, 161, 82, 42]);
+    }
+
 }

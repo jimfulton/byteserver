@@ -17,10 +17,7 @@ extern crate error_chain;
 pub mod util;
 
 #[macro_use]
-pub mod msgencode;
-
-#[macro_use]
-pub mod msgparse;
+pub mod msg;
 
 pub mod errors;
 pub mod storage;
