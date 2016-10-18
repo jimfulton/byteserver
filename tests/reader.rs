@@ -33,7 +33,7 @@ fn basic() {
     let tdir = byteserver::util::test::dir();
     let path = byteserver::util::test::test_path(&tdir, "data.fs");
 
-    storage::make_sample(
+    storage::testing::make_sample(
         &path, vec![vec![(Z64, b"000")], vec![(Z64, b"111")]]).unwrap();
     let fs = Arc::new(
         storage::FileStorage::<writer::Client>::open(path).unwrap());

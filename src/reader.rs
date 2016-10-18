@@ -2,10 +2,7 @@
 use std;
 use std::collections::BTreeMap;
 
-use serde;
-
 use storage;
-use transaction;
 use writer;
 use errors::*;
 use util::*;

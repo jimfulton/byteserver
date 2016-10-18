@@ -70,7 +70,7 @@ struct TransactionsHolder<'store> {
 
 impl<'store> Drop for TransactionsHolder<'store> {
     fn drop(&mut self) {
-        for mut trans in self.transactions.values() {
+        for trans in self.transactions.values() {
             self.fs.tpc_abort(&trans.id);
         } 
     }

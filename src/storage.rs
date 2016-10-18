@@ -115,7 +115,7 @@ impl<C: Client> FileStorage<C> {
 
         let (mut index, segment_size, mut end) =
             if std::path::Path::new(&path).exists() {
-                let (mut index, segment_size, start, mut end) =
+                let (index, segment_size, start, end) =
                     try!(index::load_index(path));
                 io_assert!(size >= segment_size, "Index bad segment length");
                 try!(file.seek(io::SeekFrom::Start(records::HEADER_SIZE + 12)));
@@ -401,9 +401,15 @@ impl<C: Client> FileStorage<C> {
 unsafe impl<C: Client> std::marker::Send for FileStorage<C> {}
 unsafe impl<C: Client> std::marker::Sync for FileStorage<C> {}
 
-pub fn make_sample(path: &String, transactions: Vec<Vec<(Oid, &[u8])>>)
-                   -> Result<()> {
-    // Create a storage with some initial data
+pub mod testing {
+    use std;
+
+    use errors::*;
+    use util::*;
+
+    use super::*;
+    
+    pub const MAXTID: &'static Tid = b"\x7f\xff\xff\xff\xff\xff\xff\xff";
 
     #[derive(Debug, PartialEq, Clone)]
     struct NullClient;
@@ -418,24 +424,39 @@ pub fn make_sample(path: &String, transactions: Vec<Vec<(Oid, &[u8])>>)
         fn close(&self) {}
     }
 
-    let fs = try!(FileStorage::open(path.clone()).chain_err(|| "open fs"));
-
-    let mut index = std::collections::BTreeMap::<Oid, Tid>::new();
-
-    for saves in transactions {
-        let mut trans = try!(fs.tpc_begin(b"", b"", b"").chain_err(|| "begin"));
-        for &(oid, v) in saves.iter() {
-            let serial = index.get(&oid).or(Some(&Z64)).unwrap().clone();
-            try!(trans.save(oid, serial, v).chain_err(|| "sample data"));
-        }
-        try!(fs.lock(&trans, Box::new(| tid | {tid;})));
-        try!(trans.locked());
-        assert_eq!(try!(fs.stage(&mut trans)).len(), 0);
-        try!(fs.tpc_finish(&trans.id, NullClient));
-        let tid = fs.last_transaction();
-        for (oid, _) in saves {
-            index.insert(oid, tid);
-        }
+    pub fn make_sample(path: &String, transactions: Vec<Vec<(Oid, &[u8])>>)
+                       -> Result<()> {
+        // Create a storage with some initial data
+        let fs: FileStorage<NullClient> =
+            try!(FileStorage::open(path.clone()).chain_err(|| "open fs"));
+        add_data(&fs, NullClient, transactions)
     }
-    Ok(())
+
+    pub fn add_data<C: Client>(fs: &FileStorage<C>,
+                               client: C,
+                               transactions: Vec<Vec<(Oid, &[u8])>>)
+                               -> Result<()> {
+        
+        let mut index = std::collections::BTreeMap::<Oid, Tid>::new();
+        for saves in transactions {
+            for &(oid, v) in saves.iter() {
+                if let LoadBeforeResult::Loaded(_, tid, _) =
+                    try!(fs.load_before(&oid, MAXTID)) {
+                    index.insert(oid.clone(), tid);
+                }
+            }
+            let mut trans = try!(fs.tpc_begin(b"", b"", b"")
+                                 .chain_err(|| "begin"));
+            for &(oid, v) in saves.iter() {
+                let serial = index.get(&oid).or(Some(&Z64)).unwrap().clone();
+                try!(trans.save(oid, serial, v).chain_err(|| "sample data"));
+            }
+            try!(fs.lock(&trans, Box::new(| _ | ())));
+            try!(trans.locked());
+            assert_eq!(try!(fs.stage(&mut trans)).len(), 0);
+            try!(fs.tpc_finish(&trans.id, client.clone()));
+            let tid = fs.last_transaction();
+        }
+        Ok(())
+    }
 }
