@@ -83,6 +83,9 @@ pub fn writer<W: io::Write>(
     client: Client)
     -> Result<()> {
 
+    try!(writer.write_all(&size_vec(b"M5".to_vec()))
+         .chain_err(|| "writing handshake"));
+
     let mut transaction_holder = TransactionsHolder {
         fs: fs.clone(),
         transactions: HashMap::new(),
