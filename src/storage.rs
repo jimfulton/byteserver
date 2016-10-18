@@ -54,7 +54,7 @@ pub struct Voted<C: Client> {
     finished: Option<C>,
 }
 
-pub trait Client: PartialEq + Send + Clone {
+pub trait Client: PartialEq + Send + Clone + std::fmt::Debug {
     fn finished(&self, tid: &Tid, len: u64, size: u64) -> Result<()>;
     fn invalidate(&self, tid: &Tid, oids: &Vec<Oid>) -> Result<()>;
     fn close(&self);
@@ -429,11 +429,11 @@ pub mod testing {
         // Create a storage with some initial data
         let fs: FileStorage<NullClient> =
             try!(FileStorage::open(path.clone()).chain_err(|| "open fs"));
-        add_data(&fs, NullClient, transactions)
+        add_data(&fs, &NullClient, transactions)
     }
 
     pub fn add_data<C: Client>(fs: &FileStorage<C>,
-                               client: C,
+                               client: &C,
                                transactions: Vec<Vec<(Oid, &[u8])>>)
                                -> Result<()> {
         
