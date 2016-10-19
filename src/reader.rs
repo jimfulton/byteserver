@@ -43,7 +43,7 @@ pub fn reader<R: io::Read>(
                     error!(sender, id,
                            ("builtins.ValueError", ("Invalid storage",)))
                 }
-                respond!(sender, id, fs.last_transaction());
+                respond!(sender, id, bytes(&fs.last_transaction()));
                 break;          // onward
             },
             Zeo::End => {
@@ -80,6 +80,9 @@ pub fn reader<R: io::Read>(
             },
             Zeo::Ping(id) => {
                 respond!(sender, id, NIL);
+            },
+            Zeo::NewOids(id) => { // TODO, don't punt :)
+                respond!(sender, id, fs.new_oids())
             },
             Zeo::GetInfo(id) => { // TODO, don't punt :)
                 respond!(sender, id, BTreeMap::<String, i64>::new())

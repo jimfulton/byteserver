@@ -42,6 +42,7 @@ pub struct FileStorage<C: Client> {
     committed_tid: Mutex<Tid>,
     locker: Mutex<lock::LockManager>,
     clients: Mutex<Vec<C>>,
+    last_oid: Mutex<u64>,
     // TODO header: FileHeader,
 }
 
@@ -62,8 +63,10 @@ pub trait Client: PartialEq + Send + Clone + std::fmt::Debug {
 
 impl<C: Client> FileStorage<C> {
 
-    fn new(path: String, file: File, index: index::Index, last_tid: Tid)
+    fn new(path: String, file: File, index: index::Index,
+           last_tid: Tid, last_oid: Oid)
            -> io::Result<FileStorage<C>> {
+        let last_oid = LittleEndian::read_u64(&last_oid);
         Ok(FileStorage {
             readers: pool::FilePool::new(
                 pool::ReadFileFactory { path: path.clone() }, 9),
@@ -77,6 +80,7 @@ impl<C: Client> FileStorage<C> {
             locker: Mutex::new(lock::LockManager::new()),
             voted: Mutex::new(VecDeque::new()),
             clients: Mutex::new(Vec::new()),
+            last_oid: Mutex::new(last_oid),
         })
     }
 
@@ -87,13 +91,13 @@ impl<C: Client> FileStorage<C> {
         let size = try!(file.metadata()).len();
         if size == 0 {
             try!(records::FileHeader::new().write(&mut file));
-            FileStorage::new(path, file, index::Index::new(), Z64)
+            FileStorage::new(path, file, index::Index::new(), Z64, Z64)
         }
         else {
             records::FileHeader::read(&mut file); // TODO use header info
-            let (index, last_tid) = try!(FileStorage::<C>::load_index(
+            let (index, last_tid, last_oid) = try!(FileStorage::<C>::load_index(
                 &(path.clone() + INDEX_SUFFIX), &mut file, size));
-            FileStorage::new(path, file, index, last_tid)
+            FileStorage::new(path, file, index, last_tid, last_oid)
         }
     }
 
@@ -111,7 +115,7 @@ impl<C: Client> FileStorage<C> {
     }
 
     fn load_index(path: &str, mut file: &File, size: u64)
-                  -> io::Result<(index::Index, Tid)> {
+                  -> io::Result<(index::Index, Tid, Oid)> {
 
         let (mut index, segment_size, mut end) =
             if std::path::Path::new(&path).exists() {
@@ -128,6 +132,7 @@ impl<C: Client> FileStorage<C> {
                 (index::Index::new(), records::HEADER_SIZE, Z64)
             };
 
+        let mut last_oid = Z64;
         if segment_size < size {
             // Read newer records into index
             let mut reader = io::BufReader::new(try!(file.try_clone()));
@@ -139,7 +144,8 @@ impl<C: Client> FileStorage<C> {
                     m if m == TRANSACTION_MARKER => {
                         let header = try!(
                             records::TransactionHeader::read(&mut reader));
-                        header.update_index(&mut reader, &mut index);
+                        last_oid = try!(header.update_index(
+                            &mut reader, &mut index, last_oid));
                         assert!(header.id > end);
                         end = header.id;
                         header.length
@@ -158,7 +164,7 @@ impl<C: Client> FileStorage<C> {
                 assert_eq!(try!(read_u64(&mut reader)), length);
             }
         }
-        Ok((index, end))
+        Ok((index, end, last_oid))
     }
 
     fn new_tid(&self) -> Tid {
@@ -211,6 +217,14 @@ impl<C: Client> FileStorage<C> {
         let mut locker = self.locker.lock().unwrap();
         locker.lock(tid, oids, locked);
         Ok(())
+    }
+
+    pub fn new_oids(&self) -> Vec<Oid> {
+        let mut last_oid = self.last_oid.lock().unwrap();
+        let result: Vec<Oid> =
+            (*last_oid + 1 .. *last_oid + 101).map(| oid | p64(oid)).collect();
+        *last_oid += 100;
+        result
     }
 
     pub fn tpc_begin(&self, user: &[u8], desc: &[u8], ext: &[u8])

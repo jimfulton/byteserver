@@ -34,7 +34,11 @@ fn basic() {
     let path = byteserver::util::test::test_path(&tdir, "data.fs");
 
     storage::testing::make_sample(
-        &path, vec![vec![(Z64, b"000")], vec![(Z64, b"111")]]).unwrap();
+        &path,
+        vec![vec![(Z64, b"000")],
+             vec![(Z64, b"111"), (p64(3), b"ooo")],
+        ],
+    ).unwrap();
     let fs = Arc::new(
         storage::FileStorage::<writer::Client>::open(path).unwrap());
     let read_fs = fs.clone();
@@ -128,8 +132,7 @@ fn basic() {
     }
 
     // Ping
-    writer.write_all(
-        &sencode!((4, "ping", ())).unwrap()).unwrap();
+    writer.write_all(&sencode!((4, "ping", ())).unwrap()).unwrap();
     match rx.recv().unwrap() {
         Zeo::Raw(r) => {
             let r = unsize(r);
@@ -139,10 +142,25 @@ fn basic() {
             assert!(r.is_none());
         }, _ => panic!("invalid message")
     }
+
+    // new_oids:
+    writer.write_all(&sencode!((4, "new_oids", ())).unwrap()).unwrap();
+    match rx.recv().unwrap() {
+        Zeo::Raw(r) => {
+            let r = unsize(r);
+            let (id, code, oids): (u64, String, Vec<Oid>) =
+                decode!(&mut (&r as &[u8])).unwrap();
+            assert_eq!(id, 4); assert_eq!(&code, "R");
+            assert_eq!(
+                oids,
+                (4..104).map(| oid | p64(oid)).collect::<Vec<Oid>>()
+            )
+        }, _ => panic!("invalid message")
+    }
     
     // Requests that deal with transactions are merely forwarded:
     writer.write_all(
-        &sencode!((0, "tpc_begin", (42, b"u", b"d", b"e", NIL, " ")))
+        &sencode!((0, "tpc_begin", (42, b"u", b"d", b"e", NIL, b" ")))
             .unwrap()).unwrap();
     match rx.recv().unwrap() {
         Zeo::TpcBegin(42, user, desc, ext) => {

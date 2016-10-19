@@ -17,7 +17,8 @@ macro_rules! decode {
         {
             let data = $data;
             let mut deserializer = rmp_serde::Deserializer::new(data);
-            Deserialize::deserialize(&mut deserializer).chain_err(|| "decode")
+            Deserialize::deserialize(&mut deserializer)
+                .chain_err(|| "decode")
         }
     )
 }
@@ -88,6 +89,7 @@ pub enum Zeo {
     Register(i64, String, bool),
     LoadBefore(i64, Oid, Tid),
     GetInfo(i64),
+    NewOids(i64),
     TpcBegin(u64, Bytes, Bytes, Bytes),
     Storea(Oid, Tid, Bytes, u64),
     Vote(i64, u64),
@@ -158,6 +160,7 @@ impl<T: io::Read> ZeoIter<T> {
         if data[4..6] == HEARTBEAT_PREFIX {
             return self.next()    // skip heartbeats
         }
+        //println!("Read vec {:?}", &data[4..]);
         let mut reader = io::Cursor::new(data.split_off(4));
         parse_message(&mut reader)
     }
@@ -191,7 +194,7 @@ fn parse_message(mut reader: &mut io::Read) -> Result<Zeo> {
         "ping" => Zeo::Ping(id),
         "tpc_begin" => {
             let (txn, user, desc, ext, _, _): (
-                u64, ByteBuf, ByteBuf, ByteBuf, Option<ByteBuf>, String) =
+                u64, ByteBuf, ByteBuf, ByteBuf, Option<ByteBuf>, ByteBuf) =
                 try!(decode!(&mut reader));
             Zeo::TpcBegin(txn, user.to_vec(), desc.to_vec(), ext.to_vec())
         },
@@ -215,6 +218,7 @@ fn parse_message(mut reader: &mut io::Read) -> Result<Zeo> {
             let (txn,): (u64,) = try!(decode!(&mut reader));
             Zeo::TpcAbort(id, txn)
         },
+        "new_oids" => Zeo::NewOids(id),
         "get_info" => Zeo::GetInfo(id),
         "register" => {
             let (storage, read_only): (String, bool) =

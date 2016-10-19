@@ -82,8 +82,9 @@ impl TransactionHeader {
         Ok(h)
     }
 
-    pub fn update_index<T>(&self, mut reader: &mut T, index: &mut index::Index)
-                           -> io::Result<()>
+    pub fn update_index<T>(&self, mut reader: &mut T, index: &mut index::Index,
+                           mut last_oid: Oid)
+                           -> io::Result<Oid>
         where T: io::Read + io::Seek {
         let mut pos =
             try!(reader.seek(io::SeekFrom::Current(
@@ -91,14 +92,18 @@ impl TransactionHeader {
 
         for i in 0 .. self.ndata {
             let ldata = try!(reader.read_u32::<LittleEndian>());
-            index.insert(try!(read8(&mut reader)), pos);
-            pos += 24 + ldata as u64;
+            let oid = try!(read8(&mut reader));
+            index.insert(oid, pos);
+            if oid > last_oid {
+                last_oid = oid;
+            }
+            pos += DATA_HEADER_SIZE + ldata as u64;
             if i + 1 < self.ndata {
                 try!(seek(&mut reader, pos));
             }
         }
 
-        Ok(())
+        Ok(last_oid)
     }
     
 }
