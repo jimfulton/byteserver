@@ -12,7 +12,8 @@ fn main() {
     for stream in listener.incoming() {
         match stream {
             Ok(stream) => {
-                println!("Accepted {:?}", stream);
+                stream.set_nodelay(true).unwrap();
+                println!("Accepted {:?} {}", stream, stream.nodelay().unwrap());
                 let (send, receive) = std::sync::mpsc::channel();
 
                 let client = byteserver::writer::Client::new(
