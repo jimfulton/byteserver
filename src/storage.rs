@@ -319,7 +319,7 @@ impl<C: Client> FileStorage<C> {
                      .chain_err(|| "seeking tpc_finish"));
                 try!(file.write_all(TRANSACTION_MARKER)
                      .chain_err(|| "writing trans marker tpc_finish"));
-                //try!(file.sync_all().chain_err(|| "fsync"));
+                try!(file.sync_all().chain_err(|| "fsync"));
                 break;
             }
         }
