@@ -1,6 +1,7 @@
 // Read side of server.
 use std;
 use std::collections::BTreeMap;
+use serde;
 
 use storage;
 use writer;
@@ -81,8 +82,11 @@ pub fn reader<R: io::Read>(
             Zeo::Ping(id) => {
                 respond!(sender, id, NIL);
             },
-            Zeo::NewOids(id) => { // TODO, don't punt :)
-                respond!(sender, id, fs.new_oids())
+            Zeo::NewOids(id) => {
+                let oids = fs.new_oids();
+                let oids: Vec<serde::bytes::Bytes> =
+                    oids.iter().map(| oid | bytes(oid)).collect();
+                respond!(sender, id, oids)
             },
             Zeo::GetInfo(id) => { // TODO, don't punt :)
                 respond!(sender, id, BTreeMap::<String, i64>::new())
