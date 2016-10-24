@@ -9,7 +9,6 @@ extern crate pipe;
 
 use std::collections::BTreeMap;
 
-use byteorder::BigEndian;
 use serde::bytes::ByteBuf;
 
 use byteserver::msg::*;
@@ -56,7 +55,8 @@ fn basic() {
         Zeo::Raw(r) => {
             let r = unsize(r);
             let (id, code, tid): (u64, String, ByteBuf) =
-                decode!(&mut (&r as &[u8])).unwrap();
+                decode!(&mut (&r as &[u8]),
+                        "decoding register response").unwrap();
             assert_eq!(id, 1); assert_eq!(&code, "R");
             assert_eq!(read8(&mut (&*tid)).unwrap(), fs.last_transaction());
         }, _ => panic!("invalid message")
@@ -67,7 +67,8 @@ fn basic() {
         Zeo::Raw(r) => {
             let r = unsize(r);
             let (id, code, info): (u64, String, BTreeMap<String, u64>) =
-                decode!(&mut (&r as &[u8])).unwrap();
+                decode!(&mut (&r as &[u8]),
+                        "decoding get_info response").unwrap();
             assert_eq!(id, 2); assert_eq!(&code, "R");
             assert_eq!(info, BTreeMap::new());
         }, _ => panic!("invalid message")
@@ -82,7 +83,8 @@ fn basic() {
             let r = unsize(r);
             let (id, code, (data, tid, end)): (
                 u64, String, (ByteBuf, ByteBuf, Option<ByteBuf>)) =
-                decode!(&mut (&r as &[u8])).unwrap();
+                decode!(&mut (&r as &[u8]),
+                        "decoding loadBefore response").unwrap();
             assert_eq!(id, 3); assert_eq!(&code, "R");
             assert_eq!(&*data, b"111");
             assert!(end.is_none());
@@ -97,7 +99,8 @@ fn basic() {
             let r = unsize(r);
             let (id, code, (data, tid, end)): (
                 u64, String, (ByteBuf, ByteBuf, Option<ByteBuf>)) =
-                decode!(&mut (&r as &[u8])).unwrap();
+                decode!(&mut (&r as &[u8]),
+                        "decoding loadBefore response").unwrap();
             assert_eq!(id, 3); assert_eq!(&code, "R");
             assert_eq!(&*data, b"000");
             assert_eq!(read8(&mut &*end.unwrap()).unwrap(), tid1);
@@ -111,7 +114,8 @@ fn basic() {
         Zeo::Raw(r) => {
             let r = unsize(r);
             let (id, code, n): (u64, String, Option<u32>) =
-                decode!(&mut (&r as &[u8])).unwrap();
+                decode!(&mut (&r as &[u8]),
+                        "decoding loadBefore response").unwrap();
             assert_eq!(id, 3); assert_eq!(&code, "R");
             assert!(n.is_none());
         }, _ => panic!("invalid message")
@@ -124,7 +128,8 @@ fn basic() {
             let r = unsize(r);
             let (id, code, (ename, (oid,))): (
                 u64, String, (String, (ByteBuf,))) =
-                decode!(&mut (&r as &[u8])).unwrap();
+                decode!(&mut (&r as &[u8]),
+                        "decoding loadBefore response").unwrap();
             assert_eq!(id, 3); assert_eq!(&code, "E");
             assert_eq!(ename, "ZODB.POSException.POSKeyError");
             assert_eq!(&*oid, &p64(9))
@@ -137,7 +142,8 @@ fn basic() {
         Zeo::Raw(r) => {
             let r = unsize(r);
             let (id, code, r): (u64, String, Option<u32>) =
-                decode!(&mut (&r as &[u8])).unwrap();
+                decode!(&mut (&r as &[u8]),
+                        "decoding ping response").unwrap();
             assert_eq!(id, 4); assert_eq!(&code, "R");
             assert!(r.is_none());
         }, _ => panic!("invalid message")
@@ -148,12 +154,15 @@ fn basic() {
     match rx.recv().unwrap() {
         Zeo::Raw(r) => {
             let r = unsize(r);
-            let (id, code, oids): (u64, String, Vec<Oid>) =
-                decode!(&mut (&r as &[u8])).unwrap();
+            let (id, code, oids): (u64, String, Vec<ByteBuf>) =
+                decode!(&mut (&r as &[u8]),
+                        format!("decoding new_oids response {:?}", r)).unwrap();
             assert_eq!(id, 4); assert_eq!(&code, "R");
             assert_eq!(
                 oids,
-                (4..104).map(| oid | p64(oid)).collect::<Vec<Oid>>()
+                (4..104)
+                    .map(| oid | ByteBuf::from(p64(oid).to_vec()))
+                    .collect::<Vec<ByteBuf>>()
             )
         }, _ => panic!("invalid message")
     }

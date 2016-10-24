@@ -19,9 +19,9 @@ impl FileHeader {
         where T: io::Read + io::Seek
     {
         check_magic(&mut reader, HEADER_MARKER);
-        io_assert!(try!(reader.read_u64::<LittleEndian>()) == 4096,
+        io_assert!(try!(reader.read_u64::<BigEndian>()) == 4096,
                    "Bad header length");
-        let alignment = try!(reader.read_u64::<LittleEndian>());
+        let alignment = try!(reader.read_u64::<BigEndian>());
         let h = match String::from_utf8(try!(read_sized16(&mut reader))) {
             Ok(previous) =>
                 FileHeader { alignment: alignment, previous: previous },
@@ -29,7 +29,7 @@ impl FileHeader {
         };
         io_assert!(try!(reader.seek(io::SeekFrom::Start(4088))) == 4088,
                    "Seek failed");
-        io_assert!(try!(reader.read_u64::<LittleEndian>()) == 4096,
+        io_assert!(try!(reader.read_u64::<BigEndian>()) == 4096,
                    "Bad header extra length");
         Ok(h)
     }
@@ -38,9 +38,9 @@ impl FileHeader {
         where T: io::Write + io::Seek
     {
         try!(writer.write_all(&HEADER_MARKER));
-        try!(writer.write_u64::<LittleEndian>(4096));
-        try!(writer.write_u64::<LittleEndian>(self.alignment));
-        try!(writer.write_u16::<LittleEndian>(self.previous.len() as u16));
+        try!(writer.write_u64::<BigEndian>(4096));
+        try!(writer.write_u64::<BigEndian>(self.alignment));
+        try!(writer.write_u16::<BigEndian>(self.previous.len() as u16));
         if self.previous.len() > 0 {
             try!(writer.write_all(&self.previous.clone().into_bytes()));
         }
@@ -48,7 +48,7 @@ impl FileHeader {
             try!(writer.seek(io::SeekFrom::Start(4088))) == 4088,
             "seek failed"
         );
-        try!(writer.write_u64::<LittleEndian>(4096));
+        try!(writer.write_u64::<BigEndian>(4096));
         Ok(())
     }
 }
@@ -72,13 +72,13 @@ impl TransactionHeader {
     }
 
     pub fn read(mut reader: &mut io::Read) -> io::Result<TransactionHeader> {
-        let length = try!(reader.read_u64::<LittleEndian>());
+        let length = try!(reader.read_u64::<BigEndian>());
         let mut h = TransactionHeader::new(try!(read8(&mut reader)));
         h.length = length;
-        h.ndata = try!(reader.read_u32::<LittleEndian>());
-        h.luser = try!(reader.read_u16::<LittleEndian>());
-        h.ldesc = try!(reader.read_u16::<LittleEndian>());
-        h.lext = try!(reader.read_u32::<LittleEndian>());
+        h.ndata = try!(reader.read_u32::<BigEndian>());
+        h.luser = try!(reader.read_u16::<BigEndian>());
+        h.ldesc = try!(reader.read_u16::<BigEndian>());
+        h.lext = try!(reader.read_u32::<BigEndian>());
         Ok(h)
     }
 
@@ -91,7 +91,7 @@ impl TransactionHeader {
                 self.luser as i64 + self.ldesc as i64 + self.lext as i64)));
 
         for i in 0 .. self.ndata {
-            let ldata = try!(reader.read_u32::<LittleEndian>());
+            let ldata = try!(reader.read_u32::<BigEndian>());
             let oid = try!(read8(&mut reader));
             index.insert(oid, pos);
             if oid > last_oid {
@@ -132,11 +132,11 @@ impl DataHeader {
         let mut buf = [0u8; DATA_HEADER_SIZE as usize];
         try!(reader.read_exact(&mut buf));
         Ok(DataHeader {
-            length: LittleEndian::read_u32(&buf[0..4]),
+            length: BigEndian::read_u32(&buf[0..4]),
             id: try!(read8(&mut &buf[4..])),
             tid: try!(read8(&mut &buf[12..])),
-            previous: LittleEndian::read_u64(&buf[20..]),
-            offset: LittleEndian::read_u64(&buf[28..]),
+            previous: BigEndian::read_u64(&buf[20..]),
+            offset: BigEndian::read_u64(&buf[28..]),
         })
     }
 }
@@ -155,12 +155,12 @@ mod tests {
     fn file_header_sample(previous: &[u8]) -> Vec<u8> {
         let mut sample = vec![0u8; 0];
         sample.extend_from_slice(&HEADER_MARKER);
-        sample.extend_from_slice(&[0, 16, 0, 0, 0, 0, 0, 0]); // 4096
-        sample.extend_from_slice(&[0, 0, 0, 64, 0, 0, 0, 0]); // 1<<30
-        sample.extend_from_slice(&vec![previous.len() as u8, 0u8][..]);
+        sample.extend_from_slice(&[0, 0, 0, 0, 0, 0, 16, 0]); // 4096
+        sample.extend_from_slice(&[0, 0, 0, 0, 64, 0, 0, 0]); // 1<<30
+        sample.extend_from_slice(&vec![0u8, previous.len() as u8][..]);
         sample.extend_from_slice(&previous);
         sample.extend_from_slice(&vec![0; 4066 - previous.len()]);
-        sample.extend_from_slice(&[0, 16, 0, 0, 0, 0, 0, 0]); // 4096
+        sample.extend_from_slice(&[0, 0, 0, 0, 0, 0, 16, 0]); // 4096
         sample
     } 
 

@@ -66,7 +66,7 @@ impl<C: Client> FileStorage<C> {
     fn new(path: String, file: File, index: index::Index,
            last_tid: Tid, last_oid: Oid)
            -> io::Result<FileStorage<C>> {
-        let last_oid = LittleEndian::read_u64(&last_oid);
+        let last_oid = BigEndian::read_u64(&last_oid);
         Ok(FileStorage {
             readers: pool::FilePool::new(
                 pool::ReadFileFactory { path: path.clone() }, 9),
@@ -151,7 +151,7 @@ impl<C: Client> FileStorage<C> {
                         header.length
                     },
                     m if m == PADDING_MARKER => {
-                        try!(reader.read_u64::<LittleEndian>())
+                        try!(reader.read_u64::<BigEndian>())
                     },
                     _ => {
                         io_assert!(
@@ -291,7 +291,7 @@ impl<C: Client> FileStorage<C> {
             let (index, length) =
                 try!(trans.stage(tid, &mut file)
                      .chain_err(|| "trans stage"));
-            voted.push_front(
+            voted.push_back(
                 Voted { id: trans.id, pos: pos, tid: tid, index: index,
                         finished: None, length: length });
         }
@@ -319,7 +319,7 @@ impl<C: Client> FileStorage<C> {
                      .chain_err(|| "seeking tpc_finish"));
                 try!(file.write_all(TRANSACTION_MARKER)
                      .chain_err(|| "writing trans marker tpc_finish"));
-                try!(file.sync_all().chain_err(|| "fsync"));
+                //try!(file.sync_all().chain_err(|| "fsync"));
                 break;
             }
         }
@@ -334,7 +334,7 @@ impl<C: Client> FileStorage<C> {
 
         while voted.len() > 0 {
             {
-                let ref mut v = voted[0];
+                let ref mut v = voted.front().unwrap();
                 if let Some(ref finished) = v.finished {
                     let len = {
                         let mut index = self.index.lock().unwrap();

@@ -21,13 +21,13 @@ impl<'store> TransactionData<'store> {
     pub fn save_tid(&mut self, tid: Tid, count: u32) -> io::Result<()> {
         try!(self.writer.seek(io::SeekFrom::Start(12)));
         try!(self.writer.write_all(&tid));
-        try!(self.writer.write_u32::<LittleEndian>(count));
+        try!(self.writer.write_u32::<BigEndian>(count));
         try!(self.writer.flush());
         let mut wpos = self.header_length;
         let mut file = self.filep.borrow_mut();
         while wpos < self.length {
             try!(file.seek(io::SeekFrom::Start(wpos)));
-            let dlen = try!(file.read_u32::<LittleEndian>());
+            let dlen = try!(file.read_u32::<BigEndian>());
             try!(file.seek(
                 io::SeekFrom::Start(wpos + records::DATA_TID_OFFSET)));
             try!(file.write_all(&tid));
@@ -62,10 +62,10 @@ impl<'store, 't> Transaction<'store> {
         let mut writer = io::BufWriter::new(file);
         try!(writer.write_all(PADDING_MARKER));
         try!(writer.write_all(&PADDING16)); // tlen, tid
-        try!(writer.write_u32::<LittleEndian>(0 as u32)); // count
-        try!(writer.write_u16::<LittleEndian>(user.len() as u16));
-        try!(writer.write_u16::<LittleEndian>(desc.len() as u16));
-        try!(writer.write_u32::<LittleEndian>(ext.len() as u32));
+        try!(writer.write_u32::<BigEndian>(0 as u32)); // count
+        try!(writer.write_u16::<BigEndian>(user.len() as u16));
+        try!(writer.write_u16::<BigEndian>(desc.len() as u16));
+        try!(writer.write_u32::<BigEndian>(ext.len() as u32));
         if user.len() > 0 { try!(writer.write_all(user)) }
         if desc.len() > 0 { try!(writer.write_all(desc)) }
         if  ext.len() > 0 { try!(writer.write_all(ext)) }
@@ -85,7 +85,7 @@ impl<'store, 't> Transaction<'store> {
                 -> io::Result<()> {
         // Save data in the first phase of 2-phase commit.
         if let TransactionState::Saving(ref mut  tdata) = self.state {
-            try!(tdata.writer.write_u32::<LittleEndian>(data.len() as u32));
+            try!(tdata.writer.write_u32::<BigEndian>(data.len() as u32));
             try!(tdata.writer.write_all(&oid));
             // read tid now, committed later:
             try!(tdata.writer.write_all(&serial));
@@ -174,7 +174,7 @@ impl<'store, 't> Transaction<'store> {
             let mut file = data.filep.borrow_mut();
             try!(file.seek(io::SeekFrom::Start(*pos))
                  .chain_err(|| "trans seek"));
-            let dlen = try!(file.read_u32::<LittleEndian>()
+            let dlen = try!(file.read_u32::<BigEndian>()
                             .chain_err(|| "trans read dlen"));
             let data = if dlen > 0 {
                 try!(file.seek(
@@ -200,7 +200,7 @@ impl<'store, 't> Transaction<'store> {
             try!(file.seek(
                 io::SeekFrom::Start(pos + records::DATA_PREVIOUS_OFFSET))
                  .chain_err(|| "trans seek prev"));
-            try!(file.write_u64::<LittleEndian>(previous)
+            try!(file.write_u64::<BigEndian>(previous)
                  .chain_err(|| "trans write previous"));
             Ok(())
         }          
@@ -221,7 +221,7 @@ impl<'store, 't> Transaction<'store> {
                 while rpos < data.length {
                     try!(file.seek(io::SeekFrom::Start(rpos)));
                     try!(file.read_exact(&mut buf));
-                    let dlen = LittleEndian::read_u32(&buf) as u64;
+                    let dlen = BigEndian::read_u32(&buf) as u64;
                     let oid = try!(read8(&mut &buf[4..]));
                     let oid_pos =
                         try!(self.index.get(&oid)
@@ -254,9 +254,9 @@ impl<'store, 't> Transaction<'store> {
             // Update header w length
             let full_length = data.length + 8;
             try!(file.seek(io::SeekFrom::Start(data.length)));
-            try!(file.write_u64::<LittleEndian>(full_length));
+            try!(file.write_u64::<BigEndian>(full_length));
             try!(file.seek(io::SeekFrom::Start(4)));
-            try!(file.write_u64::<LittleEndian>(full_length));
+            try!(file.write_u64::<BigEndian>(full_length));
 
             Ok(())
         }          
@@ -320,7 +320,7 @@ impl<'t> TransactionSerialIterator<'t> {
 
     fn read(&mut self) -> TransactionSerialIteratorItem {
         loop {
-            let dlen = try!(self.reader.read_u32::<LittleEndian>());
+            let dlen = try!(self.reader.read_u32::<BigEndian>());
             let oid = try!(read8(&mut self.reader));
             match self.index.get(&oid) {
                 Some(&pos) => {

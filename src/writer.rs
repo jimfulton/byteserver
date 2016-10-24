@@ -176,6 +176,8 @@ pub fn writer<W: io::Write>(
                 if let Some(trans) = transactions.remove(&txn) {
                     fs.tpc_abort(&trans.id);
                 }
+                respond!(writer, id, NIL);
+
             },
             Zeo::End => break,
             _ => {}

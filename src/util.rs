@@ -1,4 +1,4 @@
-pub use byteorder::{ByteOrder, LittleEndian, ReadBytesExt, WriteBytesExt};
+pub use byteorder::{ByteOrder, BigEndian, ReadBytesExt, WriteBytesExt};
 pub use std::io;
 pub use std::io::prelude::*;
 pub use std::fs::File;
@@ -26,7 +26,7 @@ pub static PADDING_MARKER: &'static [u8] = b"PPPP";
 pub static Z64: [u8; 8] = [0u8; 8];
 pub fn p64(i: u64) -> [u8; 8] {
     let mut r = [0u8; 8];
-    LittleEndian::write_u64(&mut r, i);
+    BigEndian::write_u64(&mut r, i);
     r
 }
 
@@ -54,7 +54,7 @@ pub fn read_sized(reader: &mut io::Read, size: usize) -> io::Result<Vec<u8>> {
 
 
 pub fn read_sized16(reader: &mut io::Read) -> io::Result<Vec<u8>> {
-    let size = try!(reader.read_u16::<LittleEndian>()) as usize;
+    let size = try!(reader.read_u16::<BigEndian>()) as usize;
     read_sized(reader, size)
 }
 
@@ -83,27 +83,27 @@ pub fn new_ob<T>(v: T) -> Ob<T> {
 }
 
 pub fn read_u16(r: &mut io::Read) -> io::Result<u16> {
-    r.read_u16::<LittleEndian>()
+    r.read_u16::<BigEndian>()
 }
 
 pub fn read_u32(r: &mut io::Read) -> io::Result<u32> {
-    r.read_u32::<LittleEndian>()
+    r.read_u32::<BigEndian>()
 }
 
 pub fn read_u64(r: &mut io::Read) -> io::Result<u64> {
-    r.read_u64::<LittleEndian>()
+    r.read_u64::<BigEndian>()
 }
 
 pub fn write_u16(w: &mut io::Write, v: u16) -> io::Result<()> {
-    w.write_u16::<LittleEndian>(v)
+    w.write_u16::<BigEndian>(v)
 }
 
 pub fn write_u32(w: &mut io::Write, v: u32) -> io::Result<()> {
-    w.write_u32::<LittleEndian>(v)
+    w.write_u32::<BigEndian>(v)
 }
 
 pub fn write_u64(w: &mut io::Write, v: u64) -> io::Result<()> {
-    w.write_u64::<LittleEndian>(v)
+    w.write_u64::<BigEndian>(v)
 }
 
 pub fn seek(s: &mut io::Seek, pos: u64) -> io::Result<u64> {

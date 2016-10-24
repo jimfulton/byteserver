@@ -52,7 +52,8 @@ fn basic() {
     // We get back any conflicts:
     let (msgid, flag, conflicts): (
         i64, String, Vec<BTreeMap<String, ByteBuf>>) =
-        decode!(&mut (&reader.next_vec().unwrap() as &[u8])).unwrap();
+        decode!(&mut (&reader.next_vec().unwrap() as &[u8]),
+                "decoding conflicts").unwrap();
     assert_eq!((msgid, &flag as &str), (11, "R"));
     // There weren't any:
     assert_eq!(conflicts.len(), 0);
@@ -60,11 +61,13 @@ fn basic() {
     // And we finish, getting back a tid and info:
     tx.send(Zeo::TpcFinish(12, 42)).unwrap();
     let (msgid, flag, tid): (i64, String, ByteBuf) =
-        decode!(&mut (&reader.next_vec().unwrap() as &[u8])).unwrap();
+        decode!(&mut (&reader.next_vec().unwrap() as &[u8]),
+                "decoding finish response").unwrap();
     assert_eq!((msgid, &flag as &str), (12, "R"));
     assert_eq!(tid.len(), 8);
     let (msgid, method, (info,)): (i64, String, (BTreeMap<String, u64>,)) =
-        decode!(&mut (&reader.next_vec().unwrap() as &[u8])).unwrap();
+        decode!(&mut (&reader.next_vec().unwrap() as &[u8]),
+                "decoding info").unwrap();
     assert_eq!((msgid, &method as &str), (0, "info"));
     assert_eq!(info, {
         let mut map = BTreeMap::new();
@@ -87,7 +90,8 @@ fn basic() {
     storage::testing::add_data(&fs, &client2, vec![vec![(p64(3), b"ttt")]])
         .chain_err(|| "adding data").unwrap();
     let (msgid, method, (itid, oids)): (i64, String, (ByteBuf, Vec<ByteBuf>)) = 
-        decode!(&mut (&reader.next_vec().unwrap() as &[u8])).unwrap();
+        decode!(&mut (&reader.next_vec().unwrap() as &[u8]),
+                "decoding invalidations").unwrap();
     assert_eq!((msgid, &method as &str), (0, "invalidateTransaction"));
     assert_eq!(itid.len(), 8);
     assert!(itid > tid);
