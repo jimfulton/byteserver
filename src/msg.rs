@@ -6,8 +6,6 @@ use serde;
 use serde::bytes::ByteBuf;
 pub use serde::{Deserialize, Serialize};
 
-use byteorder::BigEndian;
-
 use errors::*;
 use util::*;
 
@@ -225,7 +223,7 @@ fn parse_message(mut reader: &mut io::Read) -> Result<Zeo> {
                 try!(decode!(&mut reader));
             Zeo::Register(id, storage, read_only)
         },
-        _ => return Err("bad method".into())
+        _ => return Err(format!("bad method {}", method).into())
     })
 }
 
