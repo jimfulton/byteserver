@@ -69,9 +69,9 @@ impl<C: Client> FileStorage<C> {
         let last_oid = BigEndian::read_u64(&last_oid);
         Ok(FileStorage {
             readers: pool::FilePool::new(
-                pool::ReadFileFactory { path: path.clone() }, 9),
+                pool::ReadFileFactory { path: path.clone() }, 999),
             tmps: pool::FilePool::new(
-                try!(pool::TmpFileFactory::base(path.clone() + ".tmp")), 22),
+                try!(pool::TmpFileFactory::base(path.clone() + ".tmp")), 222),
             path: path,
             file: Mutex::new(file),
             index: Mutex::new(index),
@@ -178,6 +178,37 @@ impl<C: Client> FileStorage<C> {
         index.get(oid).map(| pos | *pos)
     }
 
+    pub fn load_beforef(&self, file: &mut File, oid: &Oid, tid: &Tid)
+                       -> Result<LoadBeforeResult> {
+        match self.lookup_pos(oid) {
+            Some(pos) => {
+                // let p = try!(self.readers.get()
+                //              .chain_err(|| "getting reader"));
+                // let mut file = p.borrow_mut();
+                try!(file.seek(io::SeekFrom::Start(pos))
+                             .chain_err(|| "seeking to object record"));
+                let mut header = try!(records::DataHeader::read(&mut &*file)
+                                      .chain_err(|| "Reading object header"));
+                let mut next: Option<Tid> = None;
+                while &header.tid >= tid {
+                    if header.previous == 0 {
+                        return Ok(LoadBeforeResult::NoneBefore);
+                    }
+                    next = Some(header.tid);
+                    try!(file.seek(io::SeekFrom::Start(header.previous))
+                         .chain_err(|| "seeking to previous"));
+                    header = try!(records::DataHeader::read(&mut &*file)
+                                  .chain_err(|| "reading previous header"));
+                }
+                Ok(LoadBeforeResult::Loaded(
+                    try!(read_sized(&mut &*file, header.length as usize)
+                         .chain_err(|| "Reading object data")),
+                    header.tid, next))
+            },
+            None => Ok(LoadBeforeResult::PosKeyError),
+        }
+    }
+
     pub fn load_before(&self, oid: &Oid, tid: &Tid)
                        -> Result<LoadBeforeResult> {
         match self.lookup_pos(oid) {
@@ -186,7 +217,7 @@ impl<C: Client> FileStorage<C> {
                              .chain_err(|| "getting reader"));
                 let mut file = p.borrow_mut();
                 try!(file.seek(io::SeekFrom::Start(pos))
-                             .chain_err(|| "seeling to object record"));
+                             .chain_err(|| "seeking to object record"));
                 let mut header = try!(records::DataHeader::read(&mut &*file)
                                       .chain_err(|| "Reading object header"));
                 let mut next: Option<Tid> = None;

@@ -29,6 +29,8 @@ pub fn reader<R: io::Read>(
     sender: std::sync::mpsc::Sender<Zeo>)
     -> Result<()> {
 
+let mut file = File::open("data.fs").unwrap();
+    
     let mut it = ZeoIter::new(reader);
 
     // handshake
@@ -61,7 +63,7 @@ pub fn reader<R: io::Read>(
         match message {
             Zeo::LoadBefore(id, oid, before) => {
                 use storage::LoadBeforeResult::*;
-                match try!(fs.load_before(&oid, &before)) {
+                match try!(fs.load_beforef(&mut file, &oid, &before)) {
                     Loaded(data, tid, Some(end)) => {
                         respond!(sender, id,
                                  (bytes(&data), bytes(&tid), bytes(&end)));

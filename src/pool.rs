@@ -19,6 +19,7 @@ pub struct ReadFileFactory {
 
 impl FileFactory for ReadFileFactory {
     fn new(&self) -> io::Result<File> {
+        println!("new read file");
         File::open(&self.path)
     }
 }

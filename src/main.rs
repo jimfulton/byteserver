@@ -7,7 +7,7 @@ fn main() {
         byteserver::storage::FileStorage::<byteserver::writer::Client>::open(
             String::from("data.fs")).unwrap());
     
-    let listener = std::net::TcpListener::bind("127.0.0.1:8080").unwrap();
+    let listener = std::net::TcpListener::bind("0.0.0.0:8080").unwrap();
 
     for stream in listener.incoming() {
         match stream {
