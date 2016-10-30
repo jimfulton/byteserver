@@ -1,8 +1,9 @@
 /// filestorage2
 
+use std;
 use std::fs::OpenOptions;
 use std::collections::VecDeque;
-use std;
+use std::sync::MutexGuard;
 
 use index;
 use lock;
@@ -35,7 +36,7 @@ pub struct FileStorage<C: Client> {
     path: String,
     voted: Mutex<VecDeque<Voted<C>>>,
     file: Mutex<File>,
-    index: Mutex<index::Index>,
+    indexes: Vec<Mutex<index::Index>>,
     readers: pool::FilePool<pool::ReadFileFactory>,
     tmps: pool::FilePool<pool::TmpFileFactory>,
     last_tid: Mutex<Tid>,
@@ -67,6 +68,26 @@ impl<C: Client> FileStorage<C> {
            last_tid: Tid, last_oid: Oid)
            -> io::Result<FileStorage<C>> {
         let last_oid = BigEndian::read_u64(&last_oid);
+        let vindexes = vec![
+            Mutex::new(index::Index::new()),
+            Mutex::new(index::Index::new()),
+            Mutex::new(index::Index::new()),
+            Mutex::new(index::Index::new()),
+            Mutex::new(index::Index::new()),
+            Mutex::new(index::Index::new()),
+            Mutex::new(index::Index::new()),
+        ];
+
+        {
+            let mut indexes: Vec<MutexGuard<index::Index>> =
+                vindexes.iter()
+                .map(| index | index.lock().unwrap())
+                .collect();
+            
+            for (oid, pos) in index.iter() {
+                indexes[(oid[7] % vindexes.len() as u8) as usize].insert(oid.clone(), *pos);
+            }
+        }
         Ok(FileStorage {
             readers: pool::FilePool::new(
                 pool::ReadFileFactory { path: path.clone() }, 999),
@@ -74,7 +95,7 @@ impl<C: Client> FileStorage<C> {
                 try!(pool::TmpFileFactory::base(path.clone() + ".tmp")), 222),
             path: path,
             file: Mutex::new(file),
-            index: Mutex::new(index),
+            indexes: vindexes,
             committed_tid: Mutex::new(last_tid),
             last_tid: Mutex::new(last_tid),
             locker: Mutex::new(lock::LockManager::new()),
@@ -174,7 +195,9 @@ impl<C: Client> FileStorage<C> {
     }
 
     fn lookup_pos(&self, oid: &Oid) -> Option<u64> {
-        let index = self.index.lock().unwrap();
+        let index =
+            self.indexes[(oid[7] % self.indexes.len() as u8) as usize]
+            .lock().unwrap();
         index.get(oid).map(| pos | *pos)
     }
 
@@ -277,11 +300,16 @@ impl<C: Client> FileStorage<C> {
             oid_serials
         };
         let oid_serial_pos = {
-            let index = self.index.lock().unwrap();
+            let indexes: Vec<MutexGuard<index::Index>> =
+                self.indexes.iter()
+                .map(| index | index.lock().unwrap())
+                .collect();
             oid_serials.iter().map(
                 | t | {
                     let (oid, serial) = *t;
-                    (oid, serial, index.get(&oid).map(| r | r.clone()))
+                    (oid, serial,
+                     indexes[(oid[7] % indexes.len() as u8) as usize].get(&oid)
+                     .map(| r | r.clone()))
                 })
                 .collect::<Vec<(Oid, Tid, Option<u64>)>>()
         };
@@ -368,11 +396,16 @@ impl<C: Client> FileStorage<C> {
                 let ref mut v = voted.front().unwrap();
                 if let Some(ref finished) = v.finished {
                     let len = {
-                        let mut index = self.index.lock().unwrap();
+                        let mut indexes: Vec<MutexGuard<index::Index>> =
+                            self.indexes.iter()
+                            .map(| index | index.lock().unwrap())
+                            .collect();
                         for (k, pos) in v.index.iter() {
-                            index.insert(k.clone(), *pos + v.pos);
+                            indexes[(k[7] % self.indexes.len() as u8)
+                                    as usize].insert(
+                                k.clone(), *pos + v.pos);
                         };
-                        index.len() as u64
+                        v.index.len() as u64
                     };
 
                     let oids: Vec<Oid> = v.index.keys()
