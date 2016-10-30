@@ -181,6 +181,7 @@ fn parse_message(mut reader: &mut io::Read) -> Result<Zeo> {
             Zeo::LoadBefore(id, oid, before)
         },
         "ping" => Zeo::Ping(id),
+        "pack" => Zeo::Ping(id), // TODO: Punting
         "tpc_begin" => {
             let (txn, user, desc, ext, _, _): (
                 u64, ByteBuf, ByteBuf, ByteBuf, Option<ByteBuf>, ByteBuf) =
