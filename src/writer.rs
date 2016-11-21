@@ -25,7 +25,7 @@ macro_rules! error {
 
 macro_rules! async {
     ($writer: expr, $method: expr, $args: expr) => (
-        try!($writer.write_all(&message!(0, $method, ($args)))
+        try!($writer.write_all(&message!(0, true, $method, ($args)))
              .chain_err(|| "send async"))
     )
 }

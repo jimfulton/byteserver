@@ -45,22 +45,22 @@ macro_rules! sencode {
 
 #[macro_export]
 macro_rules! message {
-    ($id: expr, $method: expr, $data: expr) => (
-        try!(sencode!(($id, $method, ($data))))
+    ($id: expr, $async: expr, $method: expr, $data: expr) => (
+        try!(sencode!(($id, $async, $method, ($data))))
     )
 }
 
 #[macro_export]
 macro_rules! response {
     ($id: expr, $data: expr) => (
-        message!($id, "R", ($data))
+        message!($id, false, ".reply", ($data))
     )
 }
 
 #[macro_export]
 macro_rules! error_response {
     ($id: expr, $data: expr) => (
-        message!($id, "E", ($data))
+        message!($id, true, ".reply", ($data))
     )
 }
 
@@ -160,10 +160,11 @@ fn pre_parse(mut reader: &mut io::Read)
              -> Result<(i64, String)> {
     let array_size = try!(rmp::decode::read_array_size(&mut reader)
                           .chain_err(|| "get mess size"));
-    if array_size != 3 {
+    if array_size != 4 {
         return Err(format!("Bad array size {}", array_size).into());
     }
     let id: i64 = try!(decode!(&mut reader, "decoding message id"));
+    let async: bool = try!(decode!(&mut reader, "decoding async"));
     let method: String = try!(decode!(&mut reader, "decoding message name"));
     Ok((id, method))
 }
