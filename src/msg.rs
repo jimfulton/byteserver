@@ -3,7 +3,8 @@ use std;
 use rmp;
 pub use rmp_serde;
 use serde;
-use serde::bytes::ByteBuf;
+use serde_bytes;
+use serde_bytes::ByteBuf;
 pub use serde::{Deserialize, Serialize};
 
 use errors::*;
@@ -66,8 +67,8 @@ macro_rules! error_response {
 
 pub const NIL: Option<u32> = None;
 
-pub fn bytes(data: &[u8]) -> serde::bytes::Bytes {
-    serde::bytes::Bytes::new(data)
+pub fn bytes(data: &[u8]) -> serde_bytes::Bytes {
+    serde_bytes::Bytes::new(data)
 }
 
 #[derive(Debug, PartialEq)]
@@ -158,7 +159,7 @@ impl<T: io::Read> ZeoIter<T> {
 
 fn pre_parse(mut reader: &mut io::Read)
              -> Result<(i64, String)> {
-    let array_size = try!(rmp::decode::read_array_size(&mut reader)
+    let array_size = try!(rmp::decode::read_array_len(&mut reader)
                           .chain_err(|| "get mess size"));
     if array_size != 3 {
         return Err(format!("Bad array size {}", array_size).into());

@@ -2,6 +2,7 @@
 use std;
 use std::collections::BTreeMap;
 use serde;
+use serde_bytes::Bytes;
 
 use storage;
 use writer;
@@ -84,7 +85,7 @@ pub fn reader<R: io::Read>(
             },
             Zeo::NewOids(id) => {
                 let oids = fs.new_oids();
-                let oids: Vec<serde::bytes::Bytes> =
+                let oids: Vec<Bytes> =
                     oids.iter().map(| oid | bytes(oid)).collect();
                 respond!(sender, id, oids)
             },

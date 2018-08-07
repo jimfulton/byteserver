@@ -2,6 +2,7 @@
 
 extern crate byteorder;
 extern crate serde;
+extern crate serde_bytes;
 
 #[macro_use]
 extern crate byteserver;
@@ -9,7 +10,7 @@ extern crate pipe;
 
 use std::collections::BTreeMap;
 
-use serde::bytes::ByteBuf;
+use serde_bytes::ByteBuf;
 
 use byteserver::msg::*;
 use byteserver::util::*;

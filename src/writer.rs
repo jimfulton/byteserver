@@ -2,6 +2,7 @@ use std;
 use std::collections::{BTreeMap, HashMap};
 
 use serde;
+use serde_bytes;
 
 use storage;
 use transaction;
@@ -132,10 +133,10 @@ pub fn writer<W: io::Write>(
                     try!(trans.locked());
                     let conflicts = try!(fs.stage(&mut trans));
                     let conflict_maps:
-                    Vec<BTreeMap<String, serde::bytes::Bytes>> =
+                    Vec<BTreeMap<String, serde_bytes::Bytes>> =
                         conflicts.iter()
                         .map(| c | {
-                            let mut m: BTreeMap<String, serde::bytes::Bytes> =
+                            let mut m: BTreeMap<String, serde_bytes::Bytes> =
                                 BTreeMap::new();
                             m.insert("oid".to_string(), bytes(&c.oid)); 
                             m.insert("serial".to_string(), bytes(&c.serial)); 
@@ -168,7 +169,7 @@ pub fn writer<W: io::Write>(
                 async!(writer, "info", (info,));
             },
             Zeo::Invalidate(tid, oids) => {
-                let oids: Vec<serde::bytes::Bytes> =
+                let oids: Vec<serde_bytes::Bytes> =
                     oids.iter().map(| oid | bytes(oid)).collect();
                 async!(writer, "invalidateTransaction", (bytes(&tid), oids));
             },
