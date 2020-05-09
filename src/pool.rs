@@ -32,7 +32,7 @@ impl TmpFileFactory {
     pub fn base(base: String) -> io::Result<TmpFileFactory> {
         {
             if ! Path::new(&base).exists() {
-                try!(create_dir(&base));
+                create_dir(&base)?;
             }
         }
         Ok(TmpFileFactory { base: base })
@@ -64,9 +64,7 @@ impl<F: FileFactory> FilePool<F> {
         let mut files = self.files.lock().unwrap();
         let filerc = match files.pop() {
             Some(filerc) => filerc,
-            None       => Rc::new(RefCell::new(
-                try!(self.factory.new())
-            )),
+            None         => Rc::new(RefCell::new(self.factory.new()?)),
         };
         Ok(PooledFilePointer {file: filerc, pool: self})
     }

@@ -19,18 +19,18 @@ pub struct TransactionData<'store> {
 impl<'store> TransactionData<'store> {
     
     pub fn save_tid(&mut self, tid: Tid, count: u32) -> io::Result<()> {
-        try!(self.writer.seek(io::SeekFrom::Start(12)));
-        try!(self.writer.write_all(&tid));
-        try!(self.writer.write_u32::<BigEndian>(count));
-        try!(self.writer.flush());
+        self.writer.seek(io::SeekFrom::Start(12))?;
+        self.writer.write_all(&tid)?;
+        self.writer.write_u32::<BigEndian>(count)?;
+        self.writer.flush()?;
         let mut wpos = self.header_length;
         let mut file = self.filep.borrow_mut();
         while wpos < self.length {
-            try!(file.seek(io::SeekFrom::Start(wpos)));
-            let dlen = try!(file.read_u32::<BigEndian>());
-            try!(file.seek(
-                io::SeekFrom::Start(wpos + records::DATA_TID_OFFSET)));
-            try!(file.write_all(&tid));
+            file.seek(io::SeekFrom::Start(wpos))?;
+            let dlen = file.read_u32::<BigEndian>()?;
+            file.seek(
+                io::SeekFrom::Start(wpos + records::DATA_TID_OFFSET))?;
+            file.write_all(&tid)?;
             wpos += records::DATA_HEADER_SIZE + dlen as u64;
         }
         Ok(())
@@ -56,19 +56,19 @@ impl<'store, 't> Transaction<'store> {
     pub fn begin(filep: pool::PooledFilePointer<'store, pool::TmpFileFactory>,
                  id: Tid, user: &[u8], desc: &[u8], ext: &[u8])
                  -> io::Result<Transaction<'store>> {
-        let mut file = try!(filep.borrow().try_clone());
-        try!(file.seek(io::SeekFrom::Start(0)));
-        try!(file.set_len(0));
+        let mut file = filep.borrow().try_clone()?;
+        file.seek(io::SeekFrom::Start(0))?;
+        file.set_len(0)?;
         let mut writer = io::BufWriter::new(file);
-        try!(writer.write_all(PADDING_MARKER));
-        try!(writer.write_all(&PADDING16)); // tlen, tid
-        try!(writer.write_u32::<BigEndian>(0 as u32)); // count
-        try!(writer.write_u16::<BigEndian>(user.len() as u16));
-        try!(writer.write_u16::<BigEndian>(desc.len() as u16));
-        try!(writer.write_u32::<BigEndian>(ext.len() as u32));
-        if user.len() > 0 { try!(writer.write_all(user)) }
-        if desc.len() > 0 { try!(writer.write_all(desc)) }
-        if  ext.len() > 0 { try!(writer.write_all(ext)) }
+        writer.write_all(PADDING_MARKER)?;
+        writer.write_all(&PADDING16)?; // tlen, tid
+        writer.write_u32::<BigEndian>(0 as u32)?; // count
+        writer.write_u16::<BigEndian>(user.len() as u16)?;
+        writer.write_u16::<BigEndian>(desc.len() as u16)?;
+        writer.write_u32::<BigEndian>(ext.len() as u32)?;
+        if user.len() > 0 { writer.write_all(user)? }
+        if desc.len() > 0 { writer.write_all(desc)? }
+        if  ext.len() > 0 { writer.write_all(ext)? }
         let length = 4u64 + records::TRANSACTION_HEADER_LENGTH +
             user.len() as u64 + desc.len() as u64 + ext.len() as u64;
         Ok(Transaction {
@@ -85,13 +85,13 @@ impl<'store, 't> Transaction<'store> {
                 -> io::Result<()> {
         // Save data in the first phase of 2-phase commit.
         if let TransactionState::Saving(ref mut  tdata) = self.state {
-            try!(tdata.writer.write_u32::<BigEndian>(data.len() as u32));
-            try!(tdata.writer.write_all(&oid));
+            tdata.writer.write_u32::<BigEndian>(data.len() as u32)?;
+            tdata.writer.write_all(&oid)?;
             // read tid now, committed later:
-            try!(tdata.writer.write_all(&serial));
-            try!(write_u64(&mut tdata.writer, 0)); // previous
-            try!(write_u64(&mut tdata.writer, tdata.length)); // offset
-            if data.len() > 0 { try!(tdata.writer.write_all(data)) }
+            tdata.writer.write_all(&serial)?;
+            write_u64(&mut tdata.writer, 0)?; // previous
+            write_u64(&mut tdata.writer, tdata.length)?; // offset
+            if data.len() > 0 { tdata.writer.write_all(data)? }
             if self.index.insert(oid, tdata.length).is_some() {
                 // There was an earlier save for this oid.  We'll want to
                 // pack the data before committing.
@@ -161,7 +161,7 @@ impl<'store, 't> Transaction<'store> {
     pub fn serials(&'t mut self) -> io::Result<TransactionSerialIterator<'t>> {
         if let TransactionState::Voting(ref mut data) = self.state {
             TransactionSerialIterator::new(
-                try!(data.filep.borrow().try_clone()),
+                data.filep.borrow().try_clone()?,
                 &self.index, data.length, data.header_length)
         }
         else { Err(io_error("Invalid trans state")) }
@@ -169,19 +169,20 @@ impl<'store, 't> Transaction<'store> {
 
     pub fn get_data(&mut self, oid: &Oid) -> Result<Bytes> {
         if let TransactionState::Voting(ref mut data) = self.state {
-            let pos = try!(
-                self.index.get(oid).ok_or(Error::from("trans index error")));
+            let pos =
+                self.index.get(oid).ok_or(Error::from("trans index error"))?;
             let mut file = data.filep.borrow_mut();
-            try!(file.seek(io::SeekFrom::Start(*pos))
-                 .chain_err(|| "trans seek"));
-            let dlen = try!(file.read_u32::<BigEndian>()
-                            .chain_err(|| "trans read dlen"));
+            file.seek(io::SeekFrom::Start(*pos))
+                 .chain_err(|| "trans seek")?;
+            let dlen =
+                file.read_u32::<BigEndian>()
+                .chain_err(|| "trans read dlen")?;
             let data = if dlen > 0 {
-                try!(file.seek(
+                file.seek(
                     io::SeekFrom::Start(pos + records::DATA_HEADER_SIZE))
-                     .chain_err(|| "trans seek data"));
-                try!(read_sized(&mut *file, dlen as usize)
-                     .chain_err(|| "trans read data"))
+                     .chain_err(|| "trans seek data")?;
+                read_sized(&mut *file, dlen as usize)
+                    .chain_err(|| "trans read data")?
             }
             else {
                 vec![0u8; 0]
@@ -193,15 +194,14 @@ impl<'store, 't> Transaction<'store> {
 
     pub fn set_previous(&mut self, oid: &Oid, previous: u64) -> Result<()> {
         if let TransactionState::Voting(ref mut data) = self.state {
-            let pos = try!(
-                self.index.get(oid)
-                    .ok_or(Error::from("trans index error")));
+            let pos =
+                self.index.get(oid).ok_or(Error::from("trans index error"))?;
             let mut file = data.filep.borrow_mut();
-            try!(file.seek(
+            file.seek(
                 io::SeekFrom::Start(pos + records::DATA_PREVIOUS_OFFSET))
-                 .chain_err(|| "trans seek prev"));
-            try!(file.write_u64::<BigEndian>(previous)
-                 .chain_err(|| "trans write previous"));
+                 .chain_err(|| "trans seek prev")?;
+            file.write_u64::<BigEndian>(previous)
+                .chain_err(|| "trans write previous")?;
             Ok(())
         }          
         else { Err("Invalid trans state".into()) }
@@ -219,44 +219,44 @@ impl<'store, 't> Transaction<'store> {
 
                 let mut buf = [0u8; 12];
                 while rpos < data.length {
-                    try!(file.seek(io::SeekFrom::Start(rpos)));
-                    try!(file.read_exact(&mut buf));
+                    file.seek(io::SeekFrom::Start(rpos))?;
+                    file.read_exact(&mut buf)?;
                     let dlen = BigEndian::read_u32(&buf) as u64;
-                    let oid = try!(read8(&mut &buf[4..]));
+                    let oid = read8(&mut &buf[4..])?;
                     let oid_pos =
-                        try!(self.index.get(&oid)
-                             .ok_or(io_error("trans index get"))).clone();
+                        self.index.get(&oid)
+                        .ok_or(io_error("trans index get"))?.clone();
                     if oid_pos == rpos {
                         // We want this one
                         if rpos != wpos {
                             // We need to move it.
                             let mut rest = // tid, previous, offset, data
-                                try!(read_sized(
+                                read_sized(
                                     &mut *file,
                                     dlen as usize +
                                         records::DATA_HEADER_SIZE as usize
-                                        - 12));
+                                        - 12)?;
                             // update offset:
                             write_u64(&mut &mut rest[16..24], wpos);
-                            try!(file.seek(io::SeekFrom::Start(wpos)));
-                            try!(file.write_all(&buf));
-                            try!(file.write_all(&rest));
+                            file.seek(io::SeekFrom::Start(wpos))?;
+                            file.write_all(&buf)?;
+                            file.write_all(&rest)?;
                             self.index.insert(oid, wpos);
                             wpos += dlen + records::DATA_HEADER_SIZE;
                         }
                     }
                     rpos += dlen + records::DATA_HEADER_SIZE;
                 }
-                try!(file.set_len(wpos));
+                file.set_len(wpos)?;
                 data.length = wpos;
             }
 
             // Update header w length
             let full_length = data.length + 8;
-            try!(file.seek(io::SeekFrom::Start(data.length)));
-            try!(file.write_u64::<BigEndian>(full_length));
-            try!(file.seek(io::SeekFrom::Start(4)));
-            try!(file.write_u64::<BigEndian>(full_length));
+            file.seek(io::SeekFrom::Start(data.length))?;
+            file.write_u64::<BigEndian>(full_length)?;
+            file.seek(io::SeekFrom::Start(4))?;
+            file.write_u64::<BigEndian>(full_length)?;
 
             Ok(())
         }          
@@ -268,15 +268,15 @@ impl<'store, 't> Transaction<'store> {
         let length =
             if let TransactionState::Voting(ref mut data) = self.state {
                 // Update tids in temp file
-                try!(data.save_tid(tid, self.index.len() as u32));
+                data.save_tid(tid, self.index.len() as u32)?;
                 let mut file = data.filep.borrow_mut();
-                try!(file.seek(io::SeekFrom::Start(0)));
+                file.seek(io::SeekFrom::Start(0))?;
                 
                 data.length += 8;
-                assert_eq!(try!(io::copy(&mut *file, &mut out)), data.length);
+                assert_eq!(io::copy(&mut *file, &mut out)?, data.length);
                 
                 // Truncate to 0 in hopes of avoiding write to disk
-                try!(file.set_len(0));
+                file.set_len(0)?;
                 data.length
             }
         else {
@@ -312,7 +312,7 @@ impl<'t> TransactionSerialIterator<'t> {
            index: &'t Index,
            length: u64,
            pos: u64) -> io::Result<TransactionSerialIterator> {
-        try!(file.seek(io::SeekFrom::Start(pos)));
+        file.seek(io::SeekFrom::Start(pos))?;
         Ok(TransactionSerialIterator {
             reader: io::BufReader::new(file),
             index: index, length: length, pos: pos })
@@ -320,14 +320,14 @@ impl<'t> TransactionSerialIterator<'t> {
 
     fn read(&mut self) -> TransactionSerialIteratorItem {
         loop {
-            let dlen = try!(self.reader.read_u32::<BigEndian>());
-            let oid = try!(read8(&mut self.reader));
+            let dlen = self.reader.read_u32::<BigEndian>()?;
+            let oid = read8(&mut self.reader)?;
             match self.index.get(&oid) {
                 Some(&pos) => {
                     if &pos != &self.pos {
                         // The object was repeated and this isn't the last
-                        try!(self.reader.seek(
-                            io::SeekFrom::Current(24 + dlen as i64)));
+                        self.reader.seek(
+                            io::SeekFrom::Current(24 + dlen as i64))?;
                         self.pos += records::DATA_HEADER_SIZE + dlen as u64;
                         continue
                     }
@@ -336,8 +336,8 @@ impl<'t> TransactionSerialIterator<'t> {
                     return Err(io_error("index fail in transaction"))
                 }
             }
-            let tid = try!(read8(&mut self.reader));
-            try!(self.reader.seek(io::SeekFrom::Current(16 + dlen as i64)));
+            let tid = read8(&mut self.reader)?;
+            self.reader.seek(io::SeekFrom::Current(16 + dlen as i64))?;
             self.pos += records::DATA_HEADER_SIZE + dlen as u64;
             return Ok((oid, tid))
         }

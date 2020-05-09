@@ -19,17 +19,17 @@ impl FileHeader {
         where T: io::Read + io::Seek
     {
         check_magic(&mut reader, HEADER_MARKER);
-        io_assert!(try!(reader.read_u64::<BigEndian>()) == 4096,
+        io_assert!(reader.read_u64::<BigEndian>()? == 4096,
                    "Bad header length");
-        let alignment = try!(reader.read_u64::<BigEndian>());
-        let h = match String::from_utf8(try!(read_sized16(&mut reader))) {
+        let alignment = reader.read_u64::<BigEndian>()?;
+        let h = match String::from_utf8(read_sized16(&mut reader)?) {
             Ok(previous) =>
                 FileHeader { alignment: alignment, previous: previous },
             _ => return Err(io_error("Bad previous utf8")),
         };
-        io_assert!(try!(reader.seek(io::SeekFrom::Start(4088))) == 4088,
+        io_assert!(reader.seek(io::SeekFrom::Start(4088))? == 4088,
                    "Seek failed");
-        io_assert!(try!(reader.read_u64::<BigEndian>()) == 4096,
+        io_assert!(reader.read_u64::<BigEndian>()? == 4096,
                    "Bad header extra length");
         Ok(h)
     }
@@ -37,18 +37,18 @@ impl FileHeader {
     pub fn write<T>(&self, writer: &mut T) -> io::Result<()>
         where T: io::Write + io::Seek
     {
-        try!(writer.write_all(&HEADER_MARKER));
-        try!(writer.write_u64::<BigEndian>(4096));
-        try!(writer.write_u64::<BigEndian>(self.alignment));
-        try!(writer.write_u16::<BigEndian>(self.previous.len() as u16));
+        writer.write_all(&HEADER_MARKER)?;
+        writer.write_u64::<BigEndian>(4096)?;
+        writer.write_u64::<BigEndian>(self.alignment)?;
+        writer.write_u16::<BigEndian>(self.previous.len() as u16)?;
         if self.previous.len() > 0 {
-            try!(writer.write_all(&self.previous.clone().into_bytes()));
+            writer.write_all(&self.previous.clone().into_bytes())?;
         }
         io_assert!(
-            try!(writer.seek(io::SeekFrom::Start(4088))) == 4088,
+            writer.seek(io::SeekFrom::Start(4088))? == 4088,
             "seek failed"
         );
-        try!(writer.write_u64::<BigEndian>(4096));
+        writer.write_u64::<BigEndian>(4096)?;
         Ok(())
     }
 }
@@ -72,13 +72,13 @@ impl TransactionHeader {
     }
 
     pub fn read(mut reader: &mut io::Read) -> io::Result<TransactionHeader> {
-        let length = try!(reader.read_u64::<BigEndian>());
-        let mut h = TransactionHeader::new(try!(read8(&mut reader)));
+        let length = reader.read_u64::<BigEndian>()?;
+        let mut h = TransactionHeader::new(read8(&mut reader)?);
         h.length = length;
-        h.ndata = try!(reader.read_u32::<BigEndian>());
-        h.luser = try!(reader.read_u16::<BigEndian>());
-        h.ldesc = try!(reader.read_u16::<BigEndian>());
-        h.lext = try!(reader.read_u32::<BigEndian>());
+        h.ndata = reader.read_u32::<BigEndian>()?;
+        h.luser = reader.read_u16::<BigEndian>()?;
+        h.ldesc = reader.read_u16::<BigEndian>()?;
+        h.lext = reader.read_u32::<BigEndian>()?;
         Ok(h)
     }
 
@@ -87,19 +87,20 @@ impl TransactionHeader {
                            -> io::Result<Oid>
         where T: io::Read + io::Seek {
         let mut pos =
-            try!(reader.seek(io::SeekFrom::Current(
-                self.luser as i64 + self.ldesc as i64 + self.lext as i64)));
+            reader.seek(
+                io::SeekFrom::Current(
+                    self.luser as i64 + self.ldesc as i64 + self.lext as i64))?;
 
         for i in 0 .. self.ndata {
-            let ldata = try!(reader.read_u32::<BigEndian>());
-            let oid = try!(read8(&mut reader));
+            let ldata = reader.read_u32::<BigEndian>()?;
+            let oid = read8(&mut reader)?;
             index.insert(oid, pos);
             if oid > last_oid {
                 last_oid = oid;
             }
             pos += DATA_HEADER_SIZE + ldata as u64;
             if i + 1 < self.ndata {
-                try!(seek(&mut reader, pos));
+                seek(&mut reader, pos)?;
             }
         }
 
@@ -130,11 +131,11 @@ impl DataHeader {
     pub fn read(reader: &mut io::Read) -> io::Result<DataHeader> {
         // assume reader is unbuffered
         let mut buf = [0u8; DATA_HEADER_SIZE as usize];
-        try!(reader.read_exact(&mut buf));
+        reader.read_exact(&mut buf)?;
         Ok(DataHeader {
             length: BigEndian::read_u32(&buf[0..4]),
-            id: try!(read8(&mut &buf[4..])),
-            tid: try!(read8(&mut &buf[12..])),
+            id: read8(&mut &buf[4..])?,
+            tid: read8(&mut &buf[12..])?,
             previous: BigEndian::read_u64(&buf[20..]),
             offset: BigEndian::read_u64(&buf[28..]),
         })

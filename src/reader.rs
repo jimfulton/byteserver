@@ -11,15 +11,17 @@ use msg::*;
 
 macro_rules! respond {
     ($sender: expr, $id: expr, $data: expr) => (
-        try!($sender.send(Zeo::Raw(response!($id, $data)))
-             .chain_err(|| "send response"))
+        $sender
+            .send(Zeo::Raw(response!($id, $data)))
+            .chain_err(|| "send response")?
     )
 }
 
 macro_rules! error {
     ($sender: expr, $id: expr, $data: expr) => (
-        try!($sender.send(Zeo::Raw(error_response!($id, $data)))
-             .chain_err(|| "send error response"))
+        $sender
+            .send(Zeo::Raw(error_response!($id, $data)))
+            .chain_err(|| "send error response")?
     )
 }
 
@@ -32,13 +34,13 @@ pub fn reader<R: io::Read>(
     let mut it = ZeoIter::new(reader);
 
     // handshake
-    if try!(it.next_vec()) != b"M5".to_vec() {
+    if it.next_vec()? != b"M5".to_vec() {
         return Err("Bad handshake".into())
     }
 
     // register(storage_id, read_only)
     loop {
-        match try!(it.next()) {
+        match it.next()? {
             Zeo::Register(id, storage, read_only) => {
                 if &storage != "1" {
                     error!(sender, id,
@@ -57,11 +59,11 @@ pub fn reader<R: io::Read>(
 
     // Main loop. We spend most of our time here.
     loop {
-        let message = try!(it.next());
+        let message = it.next()?;
         match message {
             Zeo::LoadBefore(id, oid, before) => {
                 use storage::LoadBeforeResult::*;
-                match try!(fs.load_before(&oid, &before)) {
+                match fs.load_before(&oid, &before)? {
                     Loaded(data, tid, Some(end)) => {
                         respond!(sender, id,
                                  (bytes(&data), bytes(&tid), bytes(&end)));
@@ -93,8 +95,10 @@ pub fn reader<R: io::Read>(
             },
             Zeo::TpcBegin(_, _, _, _) | Zeo::Storea(_, _, _, _) |
             Zeo::Vote(_, _) | Zeo::TpcFinish(_, _) |  Zeo::TpcAbort(_, _)
-                =>  try!(sender.send(message)
-                         .chain_err(|| "send error")), // Forward these
+                =>
+                sender
+                .send(message)
+                .chain_err(|| "send error")?, // Forward these
             Zeo::End => {
                 sender.send(Zeo::End);
                 return Ok(())

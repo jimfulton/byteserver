@@ -11,22 +11,22 @@ use msg::*;
 
 macro_rules! respond {
     ($writer: expr, $id: expr, $data: expr) => (
-        try!($writer.write_all(&response!($id, $data))
-             .chain_err(|| "send response"))
+        $writer.write_all(&response!($id, $data))
+             .chain_err(|| "send response")?
     )
 }
 
 macro_rules! error {
     ($writer: expr, $id: expr, $data: expr) => (
-        try!($writer.write_all(&error_response!($id, $data))
-             .chain_err(|| "send error response"))
+        $writer.write_all(&error_response!($id, $data))
+            .chain_err(|| "send error response")?
     )
 }
 
 macro_rules! async {
     ($writer: expr, $method: expr, $args: expr) => (
-        try!($writer.write_all(&message!(0, $method, ($args)))
-             .chain_err(|| "send async"))
+        $writer.write_all(&message!(0, $method, ($args)))
+            .chain_err(|| "send async")?
     )
 }
 
@@ -83,8 +83,8 @@ pub fn writer<W: io::Write>(
     client: Client)
     -> Result<()> {
 
-    try!(writer.write_all(&size_vec(b"M5".to_vec()))
-         .chain_err(|| "writing handshake"));
+    writer.write_all(&size_vec(b"M5".to_vec()))
+        .chain_err(|| "writing handshake")?;
 
     let mut transaction_holder = TransactionsHolder {
         fs: fs.clone(),
@@ -96,30 +96,30 @@ pub fn writer<W: io::Write>(
     for zeo in receiver.iter() {
         match zeo {
             Zeo::Raw(bytes) => {
-                try!(writer.write_all(&bytes).chain_err(|| "writing raw"))
+                writer.write_all(&bytes).chain_err(|| "writing raw")?
             },
             Zeo::TpcBegin(txn, user, desc, ext) => {
                 if ! transactions.contains_key(&txn) {
                     transactions.insert(
                         txn,
-                        try!(fs.tpc_begin(&user, &desc, &ext)
-                             .chain_err(|| "writer begin")));
+                        fs.tpc_begin(&user, &desc, &ext)
+                             .chain_err(|| "writer begin")?);
                 }
             },
             Zeo::Storea(oid, serial, data, txn) => {
                 if let Some(mut trans) = transactions.get_mut(&txn) {
-                    try!(trans.save(oid, serial, &data)
-                         .chain_err(|| "writer save"));
+                    trans.save(oid, serial, &data)
+                        .chain_err(|| "writer save")?;
                 }
             },
             Zeo::Vote(id, txn) => {
                 if let Some(trans) = transactions.get(&txn) {
                     let send = client.send.clone();
-                    try!(fs.lock(trans, Box::new(
+                    fs.lock(trans, Box::new(
                         move | _ | send.send(Zeo::Locked(id, txn))
                             .or::<Result<()>>(Ok(()))
                             .unwrap()
-                    )));
+                    ))?;
                 }
                 else {
                     error!(writer, id,
@@ -129,8 +129,8 @@ pub fn writer<W: io::Write>(
             },
             Zeo::Locked(id, txn) => {
                 if let Some(mut trans) = transactions.get_mut(&txn) {
-                    try!(trans.locked());
-                    let conflicts = try!(fs.stage(&mut trans));
+                    trans.locked()?;
+                    let conflicts = fs.stage(&mut trans)?;
                     let conflict_maps:
                     Vec<BTreeMap<String, serde::bytes::Bytes>> =
                         conflicts.iter()
@@ -152,7 +152,7 @@ pub fn writer<W: io::Write>(
                 if let Some(trans) = transactions.remove(&txn) {
                     let mut client = client.clone();
                     client.request_id = id;
-                    try!(fs.tpc_finish(&trans.id, client));
+                    fs.tpc_finish(&trans.id, client)?;
                 }
                 else {
                     error!(writer, id,

@@ -71,7 +71,8 @@ impl<C: Client> FileStorage<C> {
             readers: pool::FilePool::new(
                 pool::ReadFileFactory { path: path.clone() }, 9),
             tmps: pool::FilePool::new(
-                try!(pool::TmpFileFactory::base(path.clone() + ".tmp")), 22),
+                pool::TmpFileFactory::base(path.clone() + ".tmp")?,
+                22),
             path: path,
             file: Mutex::new(file),
             index: Mutex::new(index),
@@ -85,18 +86,19 @@ impl<C: Client> FileStorage<C> {
     }
 
     pub fn open(path: String) -> io::Result<FileStorage<C>> {
-        let mut file = try!(OpenOptions::new()
-                            .read(true).write(true).create(true)
-                            .open(&path));
-        let size = try!(file.metadata()).len();
+        let mut file =
+            OpenOptions::new()
+            .read(true).write(true).create(true)
+            .open(&path)?;
+        let size = file.metadata()?.len();
         if size == 0 {
-            try!(records::FileHeader::new().write(&mut file));
+            records::FileHeader::new().write(&mut file)?;
             FileStorage::new(path, file, index::Index::new(), Z64, Z64)
         }
         else {
             records::FileHeader::read(&mut file); // TODO use header info
-            let (index, last_tid, last_oid) = try!(FileStorage::<C>::load_index(
-                &(path.clone() + INDEX_SUFFIX), &mut file, size));
+            let (index, last_tid, last_oid) = FileStorage::<C>::load_index(
+                &(path.clone() + INDEX_SUFFIX), &mut file, size)?;
             FileStorage::new(path, file, index, last_tid, last_oid)
         }
     }
@@ -120,12 +122,12 @@ impl<C: Client> FileStorage<C> {
         let (mut index, segment_size, mut end) =
             if std::path::Path::new(&path).exists() {
                 let (index, segment_size, start, end) =
-                    try!(index::load_index(path));
+                    index::load_index(path)?;
                 io_assert!(size >= segment_size, "Index bad segment length");
-                try!(file.seek(io::SeekFrom::Start(records::HEADER_SIZE + 12)));
-                io_assert!(try!(read8(&mut file)) == start, "Index bad start");
-                try!(file.seek(io::SeekFrom::Start(segment_size - 8)));
-                io_assert!(try!(read8(&mut file)) == end, "Index bad end");
+                file.seek(io::SeekFrom::Start(records::HEADER_SIZE + 12))?;
+                io_assert!(read8(&mut file)? == start, "Index bad start");
+                file.seek(io::SeekFrom::Start(segment_size - 8))?;
+                io_assert!(read8(&mut file)? == end, "Index bad end");
                 (index, segment_size, end)
             }
             else {
@@ -135,23 +137,23 @@ impl<C: Client> FileStorage<C> {
         let mut last_oid = Z64;
         if segment_size < size {
             // Read newer records into index
-            let mut reader = io::BufReader::new(try!(file.try_clone()));
+            let mut reader = io::BufReader::new(file.try_clone()?);
             let mut pos = segment_size;
-            try!(seek(&mut reader, pos));
+            seek(&mut reader, pos)?;
             while pos < size {
-                let marker = try!(read4(&mut reader));
+                let marker = read4(&mut reader)?;
                 let length = match &marker {
                     m if m == TRANSACTION_MARKER => {
-                        let header = try!(
-                            records::TransactionHeader::read(&mut reader));
-                        last_oid = try!(header.update_index(
-                            &mut reader, &mut index, last_oid));
+                        let header =
+                            records::TransactionHeader::read(&mut reader)?;
+                        last_oid = header.update_index(
+                            &mut reader, &mut index, last_oid)?;
                         assert!(header.id > end);
                         end = header.id;
                         header.length
                     },
                     m if m == PADDING_MARKER => {
-                        try!(reader.read_u64::<BigEndian>())
+                        reader.read_u64::<BigEndian>()?
                     },
                     _ => {
                         io_assert!(
@@ -160,8 +162,8 @@ impl<C: Client> FileStorage<C> {
                     }
                 };
                 pos += length;
-                try!(seek(&mut reader, pos - 8));
-                assert_eq!(try!(read_u64(&mut reader)), length);
+                seek(&mut reader, pos - 8)?;
+                assert_eq!(read_u64(&mut reader)?, length);
             }
         }
         Ok((index, end, last_oid))
@@ -182,27 +184,28 @@ impl<C: Client> FileStorage<C> {
                        -> Result<LoadBeforeResult> {
         match self.lookup_pos(oid) {
             Some(pos) => {
-                let p = try!(self.readers.get()
-                             .chain_err(|| "getting reader"));
+                let p = self.readers.get().chain_err(|| "getting reader")?;
                 let mut file = p.borrow_mut();
-                try!(file.seek(io::SeekFrom::Start(pos))
-                             .chain_err(|| "seeling to object record"));
-                let mut header = try!(records::DataHeader::read(&mut &*file)
-                                      .chain_err(|| "Reading object header"));
+                file.seek(io::SeekFrom::Start(pos))
+                    .chain_err(|| "seeling to object record")?;
+                let mut header =
+                    records::DataHeader::read(&mut &*file)
+                    .chain_err(|| "Reading object header")?;
                 let mut next: Option<Tid> = None;
                 while &header.tid >= tid {
                     if header.previous == 0 {
                         return Ok(LoadBeforeResult::NoneBefore);
                     }
                     next = Some(header.tid);
-                    try!(file.seek(io::SeekFrom::Start(header.previous))
-                         .chain_err(|| "seeking to previous"));
-                    header = try!(records::DataHeader::read(&mut &*file)
-                                  .chain_err(|| "reading previous header"));
+                    file.seek(io::SeekFrom::Start(header.previous))
+                        .chain_err(|| "seeking to previous")?;
+                    header =
+                        records::DataHeader::read(&mut &*file)
+                        .chain_err(|| "reading previous header")?;
                 }
                 Ok(LoadBeforeResult::Loaded(
-                    try!(read_sized(&mut &*file, header.length as usize)
-                         .chain_err(|| "Reading object data")),
+                    read_sized(&mut &*file, header.length as usize)
+                        .chain_err(|| "Reading object data")?,
                     header.tid, next))
             },
             None => Ok(LoadBeforeResult::PosKeyError),
@@ -213,7 +216,7 @@ impl<C: Client> FileStorage<C> {
                 transaction: &transaction::Transaction,
                 locked: Box<Fn(Tid)>)
                 -> Result<()> {
-        let (tid, oids) = try!(transaction.lock_data());
+        let (tid, oids) = transaction.lock_data()?;
         let mut locker = self.locker.lock().unwrap();
         locker.lock(tid, oids, locked);
         Ok(())
@@ -229,9 +232,9 @@ impl<C: Client> FileStorage<C> {
 
     pub fn tpc_begin(&self, user: &[u8], desc: &[u8], ext: &[u8])
                  -> io::Result<transaction::Transaction> {
-        Ok(try!(transaction::Transaction::begin(
-                try!(self.tmps.get()),
-                self.new_tid(), user, desc, ext)))
+        Ok(transaction::Transaction::begin(
+                self.tmps.get()?,
+                self.new_tid(), user, desc, ext)?)
     }
 
     pub fn stage(&self, trans: &mut transaction::Transaction)
@@ -240,8 +243,8 @@ impl<C: Client> FileStorage<C> {
         // Check for conflicts
         let oid_serials = {
             let mut oid_serials: Vec<(Oid, Tid)> = vec![];
-            for r in try!(trans.serials().chain_err(|| "transaction serials")) {
-                oid_serials.push(try!(r.chain_err(|| "transaction serial")));
+            for r in trans.serials().chain_err(|| "transaction serials")? {
+                oid_serials.push(r.chain_err(|| "transaction serial")?);
             };
             oid_serials
         };
@@ -255,23 +258,23 @@ impl<C: Client> FileStorage<C> {
                 .collect::<Vec<(Oid, Tid, Option<u64>)>>()
         };
         let mut conflicts: Vec<Conflict> = vec![];
-        let p = try!(self.readers.get().chain_err(|| "getting reader"));
+        let p = self.readers.get().chain_err(|| "getting reader")?;
         let mut file = p.borrow_mut();
         for (oid, serial, posop) in oid_serial_pos {
             match posop {
                 Some(pos) => {
-                    try!(file.seek(io::SeekFrom::Start(pos+12))
-                         .chain_err(|| "Seeking to serial"));
-                    let committed = try!(read8(&mut *file)
-                                         .chain_err(|| "Reading serial"));
+                    file.seek(io::SeekFrom::Start(pos+12))
+                        .chain_err(|| "Seeking to serial")?;
+                    let committed =
+                        read8(&mut *file).chain_err(|| "Reading serial")?;
                     if committed != serial {
-                        let data = try!(trans.get_data(&oid));
+                        let data = trans.get_data(&oid)?;
                         conflicts.push(
                             Conflict { oid: oid, data: data,
                                        serial: serial, committed: committed }
                             );
                     }
-                    try!(trans.set_previous(&oid, pos));
+                    trans.set_previous(&oid, pos)?;
                 },
                 None => {
                     if serial != Z64 {
@@ -282,21 +285,19 @@ impl<C: Client> FileStorage<C> {
         }
 
         if conflicts.len() == 0 {
-            try!(trans.pack().chain_err(|| "trans pack"));
+            trans.pack().chain_err(|| "trans pack")?;
             let mut voted = self.voted.lock().unwrap();
             let mut file = self.file.lock().unwrap();
             let tid = self.new_tid();
-            let pos = try!(file.seek(io::SeekFrom::End(0))
-                           .chain_err(|| "seek end"));
+            let pos = file.seek(io::SeekFrom::End(0)).chain_err(|| "seek end")?;
             let (index, length) =
-                try!(trans.stage(tid, &mut file)
-                     .chain_err(|| "trans stage"));
+                trans.stage(tid, &mut file).chain_err(|| "trans stage")?;
             voted.push_back(
                 Voted { id: trans.id, pos: pos, tid: tid, index: index,
                         finished: None, length: length });
         }
         else {
-            try!(trans.unlocked());
+            trans.unlocked()?;
             self.locker.lock().unwrap().release(&trans.id);
         }
 
@@ -315,11 +316,11 @@ impl<C: Client> FileStorage<C> {
                 // update the index and notify clients until earlier
                 // voted transactions have finished.
                 let mut file = self.file.lock().unwrap();
-                try!(file.seek(io::SeekFrom::Start(v.pos))
-                     .chain_err(|| "seeking tpc_finish"));
-                try!(file.write_all(TRANSACTION_MARKER)
-                     .chain_err(|| "writing trans marker tpc_finish"));
-                try!(file.sync_all().chain_err(|| "fsync"));
+                file.seek(io::SeekFrom::Start(v.pos))
+                    .chain_err(|| "seeking tpc_finish")?;
+                file.write_all(TRANSACTION_MARKER)
+                    .chain_err(|| "writing trans marker tpc_finish")?;
+                file.sync_all().chain_err(|| "fsync")?;
                 break;
             }
         }
@@ -442,7 +443,7 @@ pub mod testing {
                        -> Result<()> {
         // Create a storage with some initial data
         let fs: FileStorage<NullClient> =
-            try!(FileStorage::open(path.clone()).chain_err(|| "open fs"));
+            FileStorage::open(path.clone()).chain_err(|| "open fs")?;
         add_data(&fs, &NullClient, transactions)
     }
 
@@ -455,20 +456,19 @@ pub mod testing {
         for saves in transactions {
             for &(oid, v) in saves.iter() {
                 if let LoadBeforeResult::Loaded(_, tid, _) =
-                    try!(fs.load_before(&oid, MAXTID)) {
+                    fs.load_before(&oid, MAXTID)? {
                     index.insert(oid.clone(), tid);
                 }
             }
-            let mut trans = try!(fs.tpc_begin(b"", b"", b"")
-                                 .chain_err(|| "begin"));
+            let mut trans = fs.tpc_begin(b"", b"", b"").chain_err(|| "begin")?;
             for &(oid, v) in saves.iter() {
                 let serial = index.get(&oid).or(Some(&Z64)).unwrap().clone();
-                try!(trans.save(oid, serial, v).chain_err(|| "sample data"));
+                trans.save(oid, serial, v).chain_err(|| "sample data")?;
             }
-            try!(fs.lock(&trans, Box::new(| _ | ())));
-            try!(trans.locked());
-            assert_eq!(try!(fs.stage(&mut trans)).len(), 0);
-            try!(fs.tpc_finish(&trans.id, client.clone()));
+            fs.lock(&trans, Box::new(| _ | ()))?;
+            trans.locked()?;
+            assert_eq!(fs.stage(&mut trans)?.len(), 0);
+            fs.tpc_finish(&trans.id, client.clone())?;
             let tid = fs.last_transaction();
         }
         Ok(())

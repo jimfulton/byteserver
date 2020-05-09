@@ -36,7 +36,7 @@ pub fn io_error(message: &str) -> io::Error {
 
 pub fn check_magic(reader: &mut io::Read, magic: &[u8]) -> io::Result<()> {
     let mut buf = [0u8; 4];
-    try!(reader.read_exact(&mut buf));
+    reader.read_exact(&mut buf)?;
     io_assert!(&buf == magic, "bad magic");
     Ok(())
 }
@@ -44,7 +44,7 @@ pub fn check_magic(reader: &mut io::Read, magic: &[u8]) -> io::Result<()> {
 pub fn read_sized(reader: &mut io::Read, size: usize) -> io::Result<Vec<u8>> {
     if size > 0 {
         let mut r = vec![0u8; size];
-        try!(reader.read_exact(&mut r));
+        reader.read_exact(&mut r)?;
         Ok(r)
     }
     else {
@@ -54,25 +54,25 @@ pub fn read_sized(reader: &mut io::Read, size: usize) -> io::Result<Vec<u8>> {
 
 
 pub fn read_sized16(reader: &mut io::Read) -> io::Result<Vec<u8>> {
-    let size = try!(reader.read_u16::<BigEndian>()) as usize;
+    let size = reader.read_u16::<BigEndian>()? as usize;
     read_sized(reader, size)
 }
 
 pub fn read1(reader: &mut io::Read) -> io::Result<u8> {
     let mut r = [0u8];
-    try!(reader.read_exact(&mut r));
+    reader.read_exact(&mut r)?;
     Ok(r[0])
 }
 
 pub fn read4(reader: &mut io::Read) -> io::Result<[u8; 4]> {
     let mut r = [0u8; 4];
-    try!(reader.read_exact(&mut r));
+    reader.read_exact(&mut r)?;
     Ok::<[u8; 4], io::Error>(r)
 }
 
 pub fn read8(reader: &mut io::Read) -> io::Result<[u8; 8]> {
     let mut r = [0u8; 8];
-    try!(reader.read_exact(&mut r));
+    reader.read_exact(&mut r)?;
     Ok::<[u8; 8], io::Error>(r)
 }
 
