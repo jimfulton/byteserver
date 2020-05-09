@@ -1,6 +1,6 @@
-=================================
-Experimental Fast ZEO/ZODB server
-=================================
+=================================================
+Experimental Fast ZEO/ZODB server written in Rust
+=================================================
 
 The main goal of this project is to provide a fast `ZEO
 <https://github.com/zopefoundation/ZEO>`_ server for `ZODB
