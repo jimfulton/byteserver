@@ -369,7 +369,6 @@ pub mod tests {
     use pool;
     use records;
     use util;
-    use util::*;
     
     #[test]
     fn works_w_dup() {

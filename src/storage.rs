@@ -214,7 +214,7 @@ impl<C: Client> FileStorage<C> {
 
     pub fn lock(&self,
                 transaction: &transaction::Transaction,
-                locked: Box<Fn(Tid)>)
+                locked: Box<dyn Fn(Tid)>)
                 -> Result<()> {
         let (tid, oids) = transaction.lock_data()?;
         let mut locker = self.locker.lock().unwrap();
@@ -419,7 +419,6 @@ unsafe impl<C: Client> std::marker::Sync for FileStorage<C> {}
 pub mod testing {
     use std;
 
-    use errors::*;
     use util::*;
 
     use super::*;

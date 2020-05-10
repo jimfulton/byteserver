@@ -71,7 +71,8 @@ impl TransactionHeader {
             length: 0, id: tid, luser: 0, ldesc: 0, lext: 0, ndata: 0 }
     }
 
-    pub fn read(mut reader: &mut io::Read) -> io::Result<TransactionHeader> {
+    pub fn read(mut reader: &mut dyn io::Read)
+                -> io::Result<TransactionHeader> {
         let length = reader.read_u64::<BigEndian>()?;
         let mut h = TransactionHeader::new(read8(&mut reader)?);
         h.length = length;
@@ -128,7 +129,7 @@ impl DataHeader {
             length: 0, id: tid, luser: 0, ldesc: 0, lext: 0, ndata: 0 }
     }
 
-    pub fn read(reader: &mut io::Read) -> io::Result<DataHeader> {
+    pub fn read(reader: &mut dyn io::Read) -> io::Result<DataHeader> {
         // assume reader is unbuffered
         let mut buf = [0u8; DATA_HEADER_SIZE as usize];
         reader.read_exact(&mut buf)?;
@@ -151,7 +152,6 @@ impl DataHeader {
 mod tests {
 
     pub use super::*;
-    use util::*;
 
     fn file_header_sample(previous: &[u8]) -> Vec<u8> {
         let mut sample = vec![0u8; 0];

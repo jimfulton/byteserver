@@ -46,7 +46,6 @@ mod tests {
 
     use super::*;
     use util;
-    use util::*;
 
     #[test]
     fn works() {

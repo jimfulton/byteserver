@@ -155,7 +155,7 @@ impl<T: io::Read> ZeoIter<T> {
 
 }
 
-fn pre_parse(mut reader: &mut io::Read)
+fn pre_parse(mut reader: &mut dyn io::Read)
              -> Result<(i64, String)> {
     let array_size =
         rmp::decode::read_array_size(&mut reader)
@@ -168,7 +168,7 @@ fn pre_parse(mut reader: &mut io::Read)
     Ok((id, method))
 }
 
-fn parse_message(mut reader: &mut io::Read) -> Result<Zeo> {
+fn parse_message(mut reader: &mut dyn io::Read) -> Result<Zeo> {
     let (id, method) = pre_parse(&mut reader)?;
 
     Ok(match method.as_ref() {
@@ -227,7 +227,6 @@ fn parse_message(mut reader: &mut io::Read) -> Result<Zeo> {
 mod tests {
 
     use super::*;
-    use errors::*;
     use std::io;
 
     #[test]

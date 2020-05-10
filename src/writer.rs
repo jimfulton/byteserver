@@ -107,7 +107,7 @@ pub fn writer<W: io::Write>(
                 }
             },
             Zeo::Storea(oid, serial, data, txn) => {
-                if let Some(mut trans) = transactions.get_mut(&txn) {
+                if let Some(trans) = transactions.get_mut(&txn) {
                     trans.save(oid, serial, &data)
                         .chain_err(|| "writer save")?;
                 }

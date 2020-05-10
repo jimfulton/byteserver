@@ -8,7 +8,7 @@ pub struct Locking {
     id: Tid,
     want: Vec<Oid>,
     got: Vec<Oid>,
-    locked: Box<Fn(Tid)>,
+    locked: Box<dyn Fn(Tid)>,
 }
     
 pub struct LockManager {
@@ -27,7 +27,7 @@ impl LockManager {
         }
     }
 
-    pub fn lock(&mut self, id: Tid, want: Vec<Oid>, locked: Box<Fn(Tid)>) {
+    pub fn lock(&mut self, id: Tid, want: Vec<Oid>, locked: Box<dyn Fn(Tid)>) {
         self.lock_waiting(
             Locking { id: id, want: want, got: vec![], locked: locked });
     }
@@ -35,8 +35,8 @@ impl LockManager {
     fn lock_waiting(&mut self, mut locking: Locking) {
         let id = locking.id;
         { // Limit lifetime of locker borrow below :(
-            let mut want = &mut locking.want;
-            let mut got =  &mut locking.got;
+            let want = &mut locking.want;
+            let got =  &mut locking.got;
             while ! want.is_empty() {
                 let oid = want.last().unwrap().clone();
                 if self.locks.contains(&oid) {
@@ -94,7 +94,6 @@ impl LockManager {
 mod tests {
 
     use super::*;
-    use util::*;
 
     struct TestLocker { id: Tid, pub is_locked: bool }
     impl TestLocker {

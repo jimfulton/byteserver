@@ -34,14 +34,15 @@ pub fn io_error(message: &str) -> io::Error {
     io::Error::new(io::ErrorKind::Other, message)
 }
 
-pub fn check_magic(reader: &mut io::Read, magic: &[u8]) -> io::Result<()> {
+pub fn check_magic(reader: &mut dyn io::Read, magic: &[u8]) -> io::Result<()> {
     let mut buf = [0u8; 4];
     reader.read_exact(&mut buf)?;
     io_assert!(&buf == magic, "bad magic");
     Ok(())
 }
 
-pub fn read_sized(reader: &mut io::Read, size: usize) -> io::Result<Vec<u8>> {
+pub fn read_sized(reader: &mut dyn io::Read, size: usize)
+                  -> io::Result<Vec<u8>> {
     if size > 0 {
         let mut r = vec![0u8; size];
         reader.read_exact(&mut r)?;
@@ -53,24 +54,24 @@ pub fn read_sized(reader: &mut io::Read, size: usize) -> io::Result<Vec<u8>> {
 }
 
 
-pub fn read_sized16(reader: &mut io::Read) -> io::Result<Vec<u8>> {
+pub fn read_sized16(reader: &mut dyn io::Read) -> io::Result<Vec<u8>> {
     let size = reader.read_u16::<BigEndian>()? as usize;
     read_sized(reader, size)
 }
 
-pub fn read1(reader: &mut io::Read) -> io::Result<u8> {
+pub fn read1(reader: &mut dyn io::Read) -> io::Result<u8> {
     let mut r = [0u8];
     reader.read_exact(&mut r)?;
     Ok(r[0])
 }
 
-pub fn read4(reader: &mut io::Read) -> io::Result<[u8; 4]> {
+pub fn read4(reader: &mut dyn io::Read) -> io::Result<[u8; 4]> {
     let mut r = [0u8; 4];
     reader.read_exact(&mut r)?;
     Ok::<[u8; 4], io::Error>(r)
 }
 
-pub fn read8(reader: &mut io::Read) -> io::Result<[u8; 8]> {
+pub fn read8(reader: &mut dyn io::Read) -> io::Result<[u8; 8]> {
     let mut r = [0u8; 8];
     reader.read_exact(&mut r)?;
     Ok::<[u8; 8], io::Error>(r)
@@ -82,31 +83,31 @@ pub fn new_ob<T>(v: T) -> Ob<T> {
     Arc::new(RefCell::new(v))
 }
 
-pub fn read_u16(r: &mut io::Read) -> io::Result<u16> {
+pub fn read_u16(r: &mut dyn io::Read) -> io::Result<u16> {
     r.read_u16::<BigEndian>()
 }
 
-pub fn read_u32(r: &mut io::Read) -> io::Result<u32> {
+pub fn read_u32(r: &mut dyn io::Read) -> io::Result<u32> {
     r.read_u32::<BigEndian>()
 }
 
-pub fn read_u64(r: &mut io::Read) -> io::Result<u64> {
+pub fn read_u64(r: &mut dyn io::Read) -> io::Result<u64> {
     r.read_u64::<BigEndian>()
 }
 
-pub fn write_u16(w: &mut io::Write, v: u16) -> io::Result<()> {
+pub fn write_u16(w: &mut dyn io::Write, v: u16) -> io::Result<()> {
     w.write_u16::<BigEndian>(v)
 }
 
-pub fn write_u32(w: &mut io::Write, v: u32) -> io::Result<()> {
+pub fn write_u32(w: &mut dyn io::Write, v: u32) -> io::Result<()> {
     w.write_u32::<BigEndian>(v)
 }
 
-pub fn write_u64(w: &mut io::Write, v: u64) -> io::Result<()> {
+pub fn write_u64(w: &mut dyn io::Write, v: u64) -> io::Result<()> {
     w.write_u64::<BigEndian>(v)
 }
 
-pub fn seek(s: &mut io::Seek, pos: u64) -> io::Result<u64> {
+pub fn seek(s: &mut dyn io::Seek, pos: u64) -> io::Result<u64> {
     s.seek(io::SeekFrom::Start(pos))
 }
 
