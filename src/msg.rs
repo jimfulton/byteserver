@@ -1,13 +1,9 @@
-use std;
 
-use rmp;
-pub use rmp_serde;
-use serde;
 use serde::bytes::ByteBuf;
 pub use serde::{Deserialize, Serialize};
 
-use errors::*;
-use util::*;
+use crate::errors::*;
+use crate::util::*;
 
 #[macro_export]
 macro_rules! decode {

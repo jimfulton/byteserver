@@ -116,7 +116,7 @@ mod tests {
     use std::sync;
     use std::thread;
 
-    use util;
+    use crate::util;
 
     #[test]
     fn works() {

@@ -2,7 +2,7 @@ use std::collections::vec_deque::VecDeque;
 use std::collections::{HashMap, HashSet};
 use std::ops::Fn;
 
-use util::*;
+use crate::util::*;
 
 pub struct Locking {
     id: Tid,

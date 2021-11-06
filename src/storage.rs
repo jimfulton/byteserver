@@ -2,17 +2,16 @@
 
 use std::fs::OpenOptions;
 use std::collections::VecDeque;
-use std;
 
-use index;
-use lock;
-use pool;
-use records;
-use tid;
-use transaction;
+use crate::index;
+use crate::lock;
+use crate::pool;
+use crate::records;
+use crate::tid;
+use crate::transaction;
 
-use errors::*;
-use util::*;
+use crate::errors::*;
+use crate::util::*;
 
 static INDEX_SUFFIX: &'static str = ".index";
 
@@ -417,9 +416,7 @@ unsafe impl<C: Client> std::marker::Send for FileStorage<C> {}
 unsafe impl<C: Client> std::marker::Sync for FileStorage<C> {}
 
 pub mod testing {
-    use std;
-
-    use util::*;
+    use crate::util::*;
 
     use super::*;
     

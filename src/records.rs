@@ -1,5 +1,6 @@
-use index;
-use util::*;
+use crate::index;
+use crate::util;
+use crate::util::*;
 
 pub static HEADER_MARKER: &'static [u8] = b"fs2 ";
 
@@ -15,10 +16,10 @@ impl FileHeader {
         FileHeader { alignment: 1 << 32, previous: String::new() }
     }
 
-    pub fn read<T>(mut reader: &mut T) -> io::Result<FileHeader>
-        where T: io::Read + io::Seek
+    pub fn read<T>(mut reader: &mut T) -> std::io::Result<FileHeader>
+        where T: std::io::Read + std::io::Seek
     {
-        check_magic(&mut reader, HEADER_MARKER);
+        util::check_magic(&mut reader, HEADER_MARKER);
         io_assert!(reader.read_u64::<BigEndian>()? == 4096,
                    "Bad header length");
         let alignment = reader.read_u64::<BigEndian>()?;

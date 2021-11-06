@@ -1,10 +1,8 @@
-use std;
-
-use errors::*;
-use util::*;
-use index::Index;
-use pool;
-use records;
+use crate::errors::*;
+use crate::util::*;
+use crate::index::Index;
+use crate::pool;
+use crate::records;
 
 static PADDING16: [u8; 16] = [0u8; 16]; 
 
@@ -365,10 +363,10 @@ impl<'t> std::iter::Iterator for TransactionSerialIterator<'t> {
 pub mod tests {
 
     use super::*;
-    use index;
-    use pool;
-    use records;
-    use util;
+    use crate::index;
+    use crate::pool;
+    use crate::records;
+    use crate::util;
     
     #[test]
     fn works_w_dup() {

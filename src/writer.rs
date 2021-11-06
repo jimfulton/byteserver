@@ -1,13 +1,10 @@
-use std;
 use std::collections::{BTreeMap, HashMap};
 
-use serde;
-
-use storage;
-use transaction;
-use errors::*;
-use util::*;
-use msg::*;
+use crate::storage;
+use crate::transaction;
+use crate::errors::*;
+use crate::util::*;
+use crate::msg::*;
 
 macro_rules! respond {
     ($writer: expr, $id: expr, $data: expr) => (
@@ -23,7 +20,7 @@ macro_rules! error {
     )
 }
 
-macro_rules! async {
+macro_rules! async_ {
     ($writer: expr, $method: expr, $args: expr) => (
         $writer.write_all(&message!(0, $method, ($args)))
             .chain_err(|| "send async")?
@@ -50,7 +47,7 @@ impl PartialEq for Client {
     }
 }
 
-impl storage::Client for Client {
+impl crate::storage::Client for Client {
     fn finished(&self, tid: &Tid, len: u64, size: u64) -> Result<()>  {
         self.send.send(
             Zeo::Finished(self.request_id, tid.clone(), len, size)
@@ -165,12 +162,12 @@ pub fn writer<W: io::Write>(
                 let mut info: BTreeMap<String, u64> = BTreeMap::new();
                 info.insert("length".to_string(), len);
                 info.insert("size".to_string(), size);
-                async!(writer, "info", (info,));
+                async_!(writer, "info", (info,));
             },
             Zeo::Invalidate(tid, oids) => {
                 let oids: Vec<serde::bytes::Bytes> =
                     oids.iter().map(| oid | bytes(oid)).collect();
-                async!(writer, "invalidateTransaction", (bytes(&tid), oids));
+                async_!(writer, "invalidateTransaction", (bytes(&tid), oids));
             },
             Zeo::TpcAbort(id, txn) => {
                 if let Some(trans) = transactions.remove(&txn) {
