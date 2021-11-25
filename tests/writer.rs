@@ -10,11 +10,11 @@ extern crate pipe;
 
 use std::collections::BTreeMap;
 
+use anyhow::Context;
 use serde::bytes::ByteBuf;
 
 use byteserver::msg::*;
 use byteserver::util::*;
-use byteserver::errors::*;
 use byteserver::writer;
 use byteserver::storage;
 
@@ -88,7 +88,7 @@ fn basic() {
     let (tx2, _) = std::sync::mpsc::channel();
     let client2 = writer::Client::new("test2".to_string(), tx2.clone());
     storage::testing::add_data(&fs, &client2, vec![vec![(p64(3), b"ttt")]])
-        .chain_err(|| "adding data").unwrap();
+        .context("adding data").unwrap();
     let (msgid, method, (itid, oids)): (i64, String, (ByteBuf, Vec<ByteBuf>)) = 
         decode!(&mut (&reader.next_vec().unwrap() as &[u8]),
                 "decoding invalidations").unwrap();

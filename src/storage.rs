@@ -3,6 +3,9 @@
 use std::fs::OpenOptions;
 use std::collections::VecDeque;
 
+use anyhow::{Context, Result};
+
+use crate::errors;
 use crate::index;
 use crate::lock;
 use crate::pool;
@@ -10,7 +13,6 @@ use crate::records;
 use crate::tid;
 use crate::transaction;
 
-use crate::errors::*;
 use crate::util::*;
 
 static INDEX_SUFFIX: &'static str = ".index";
@@ -183,13 +185,13 @@ impl<C: Client> FileStorage<C> {
                        -> Result<LoadBeforeResult> {
         match self.lookup_pos(oid) {
             Some(pos) => {
-                let p = self.readers.get().chain_err(|| "getting reader")?;
+                let p = self.readers.get().context("getting reader")?;
                 let mut file = p.borrow_mut();
                 file.seek(io::SeekFrom::Start(pos))
-                    .chain_err(|| "seeling to object record")?;
+                    .context("seeking to object record")?;
                 let mut header =
                     records::DataHeader::read(&mut &*file)
-                    .chain_err(|| "Reading object header")?;
+                    .context("Reading object header")?;
                 let mut next: Option<Tid> = None;
                 while &header.tid >= tid {
                     if header.previous == 0 {
@@ -197,14 +199,14 @@ impl<C: Client> FileStorage<C> {
                     }
                     next = Some(header.tid);
                     file.seek(io::SeekFrom::Start(header.previous))
-                        .chain_err(|| "seeking to previous")?;
+                        .context("seeking to previous")?;
                     header =
                         records::DataHeader::read(&mut &*file)
-                        .chain_err(|| "reading previous header")?;
+                        .context("reading previous header")?;
                 }
                 Ok(LoadBeforeResult::Loaded(
                     read_sized(&mut &*file, header.length as usize)
-                        .chain_err(|| "Reading object data")?,
+                        .context("Reading object data")?,
                     header.tid, next))
             },
             None => Ok(LoadBeforeResult::PosKeyError),
@@ -242,8 +244,8 @@ impl<C: Client> FileStorage<C> {
         // Check for conflicts
         let oid_serials = {
             let mut oid_serials: Vec<(Oid, Tid)> = vec![];
-            for r in trans.serials().chain_err(|| "transaction serials")? {
-                oid_serials.push(r.chain_err(|| "transaction serial")?);
+            for r in trans.serials().context("transaction serials")? {
+                oid_serials.push(r.context("transaction serial")?);
             };
             oid_serials
         };
@@ -257,15 +259,15 @@ impl<C: Client> FileStorage<C> {
                 .collect::<Vec<(Oid, Tid, Option<u64>)>>()
         };
         let mut conflicts: Vec<Conflict> = vec![];
-        let p = self.readers.get().chain_err(|| "getting reader")?;
+        let p = self.readers.get().context("getting reader")?;
         let mut file = p.borrow_mut();
         for (oid, serial, posop) in oid_serial_pos {
             match posop {
                 Some(pos) => {
                     file.seek(io::SeekFrom::Start(pos+12))
-                        .chain_err(|| "Seeking to serial")?;
+                        .context("Seeking to serial")?;
                     let committed =
-                        read8(&mut *file).chain_err(|| "Reading serial")?;
+                        read8(&mut *file).context("Reading serial")?;
                     if committed != serial {
                         let data = trans.get_data(&oid)?;
                         conflicts.push(
@@ -277,20 +279,20 @@ impl<C: Client> FileStorage<C> {
                 },
                 None => {
                     if serial != Z64 {
-                        return Err(ErrorKind::POSKeyError(oid).into());
+                        return Err(errors::POSError::Key(oid))?;
                     }
                 }
             }
         }
 
         if conflicts.len() == 0 {
-            trans.pack().chain_err(|| "trans pack")?;
+            trans.pack().context("trans pack")?;
             let mut voted = self.voted.lock().unwrap();
             let mut file = self.file.lock().unwrap();
             let tid = self.new_tid();
-            let pos = file.seek(io::SeekFrom::End(0)).chain_err(|| "seek end")?;
+            let pos = file.seek(io::SeekFrom::End(0)).context("seek end")?;
             let (index, length) =
-                trans.stage(tid, &mut file).chain_err(|| "trans stage")?;
+                trans.stage(tid, &mut file).context("trans stage")?;
             voted.push_back(
                 Voted { id: trans.id, pos: pos, tid: tid, index: index,
                         finished: None, length: length });
@@ -316,10 +318,10 @@ impl<C: Client> FileStorage<C> {
                 // voted transactions have finished.
                 let mut file = self.file.lock().unwrap();
                 file.seek(io::SeekFrom::Start(v.pos))
-                    .chain_err(|| "seeking tpc_finish")?;
+                    .context("seeking tpc_finish")?;
                 file.write_all(TRANSACTION_MARKER)
-                    .chain_err(|| "writing trans marker tpc_finish")?;
-                file.sync_all().chain_err(|| "fsync")?;
+                    .context("writing trans marker tpc_finish")?;
+                file.sync_all().context("fsync")?;
                 break;
             }
         }
@@ -439,7 +441,7 @@ pub mod testing {
                        -> Result<()> {
         // Create a storage with some initial data
         let fs: FileStorage<NullClient> =
-            FileStorage::open(path.clone()).chain_err(|| "open fs")?;
+            FileStorage::open(path.clone()).context("open fs")?;
         add_data(&fs, &NullClient, transactions)
     }
 
@@ -456,10 +458,10 @@ pub mod testing {
                     index.insert(oid.clone(), tid);
                 }
             }
-            let mut trans = fs.tpc_begin(b"", b"", b"").chain_err(|| "begin")?;
+            let mut trans = fs.tpc_begin(b"", b"", b"").context("begin")?;
             for &(oid, v) in saves.iter() {
                 let serial = index.get(&oid).or(Some(&Z64)).unwrap().clone();
-                trans.save(oid, serial, v).chain_err(|| "sample data")?;
+                trans.save(oid, serial, v).context("sample data")?;
             }
             fs.lock(&trans, Box::new(| _ | ()))?;
             trans.locked()?;

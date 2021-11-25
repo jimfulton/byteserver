@@ -9,11 +9,11 @@ extern crate pipe;
 
 use std::collections::BTreeMap;
 
+use anyhow::Context;
 use serde::bytes::ByteBuf;
 
 use byteserver::msg::*;
 use byteserver::util::*;
-use byteserver::errors::*;
 use byteserver::reader;
 use byteserver::writer;
 use byteserver::storage;

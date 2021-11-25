@@ -3,15 +3,13 @@ use std::collections::BTreeMap;
 
 use crate::storage;
 use crate::writer;
-use crate::errors::*;
 use crate::util::*;
 use crate::msg::*;
+use anyhow::{anyhow, Context, Result};
 
 macro_rules! respond {
     ($sender: expr, $id: expr, $data: expr) => (
-        $sender
-            .send(Zeo::Raw(response!($id, $data)))
-            .chain_err(|| "send response")?
+        $sender.send(Zeo::Raw(response!($id, $data))).context("send response")?
     )
 }
 
@@ -19,7 +17,7 @@ macro_rules! error {
     ($sender: expr, $id: expr, $data: expr) => (
         $sender
             .send(Zeo::Raw(error_response!($id, $data)))
-            .chain_err(|| "send error response")?
+            .context("send error response")?
     )
 }
 
@@ -33,7 +31,7 @@ pub fn reader<R: io::Read>(
 
     // handshake
     if it.next_vec()? != b"M5".to_vec() {
-        return Err("Bad handshake".into())
+        return Err(anyhow!("Bad handshake"))?
     }
 
     // register(storage_id, read_only)
@@ -51,7 +49,7 @@ pub fn reader<R: io::Read>(
                 sender.send(Zeo::End);
                 return Ok(())
             },
-            _ => return Err("bad method".into())
+            _ => return Err(anyhow!("bad method"))?
         }
     }
 
@@ -96,12 +94,12 @@ pub fn reader<R: io::Read>(
                 =>
                 sender
                 .send(message)
-                .chain_err(|| "send error")?, // Forward these
+                .context("send error")?, // Forward these
             Zeo::End => {
                 sender.send(Zeo::End);
                 return Ok(())
             },
-            _ => return Err("bad method".into())
+            _ => return Err(anyhow!("bad method"))
         }            
     }
 }

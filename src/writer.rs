@@ -1,29 +1,30 @@
 use std::collections::{BTreeMap, HashMap};
 
+use anyhow::{Context, Result};
+
 use crate::storage;
 use crate::transaction;
-use crate::errors::*;
 use crate::util::*;
 use crate::msg::*;
 
 macro_rules! respond {
     ($writer: expr, $id: expr, $data: expr) => (
         $writer.write_all(&response!($id, $data))
-             .chain_err(|| "send response")?
+             .context("send response")?
     )
 }
 
 macro_rules! error {
     ($writer: expr, $id: expr, $data: expr) => (
         $writer.write_all(&error_response!($id, $data))
-            .chain_err(|| "send error response")?
+            .context("send error response")?
     )
 }
 
 macro_rules! async_ {
     ($writer: expr, $method: expr, $args: expr) => (
         $writer.write_all(&message!(0, $method, ($args)))
-            .chain_err(|| "send async")?
+            .context("send async")?
     )
 }
 
@@ -51,11 +52,11 @@ impl crate::storage::Client for Client {
     fn finished(&self, tid: &Tid, len: u64, size: u64) -> Result<()>  {
         self.send.send(
             Zeo::Finished(self.request_id, tid.clone(), len, size)
-        ).chain_err(|| "send finished")
+        ).context("send finished")
     }
     fn invalidate(&self, tid: &Tid, oids: &Vec<Oid>) -> Result<()>  {
         self.send.send(Zeo::Invalidate(
-            tid.clone(), oids.clone())).chain_err(|| "send invalidate")
+            tid.clone(), oids.clone())).context("send invalidate")
     }
     fn close(&self) {}
 }
@@ -81,7 +82,7 @@ pub fn writer<W: io::Write>(
     -> Result<()> {
 
     writer.write_all(&size_vec(b"M5".to_vec()))
-        .chain_err(|| "writing handshake")?;
+        .context("writing handshake")?;
 
     let mut transaction_holder = TransactionsHolder {
         fs: fs.clone(),
@@ -93,20 +94,20 @@ pub fn writer<W: io::Write>(
     for zeo in receiver.iter() {
         match zeo {
             Zeo::Raw(bytes) => {
-                writer.write_all(&bytes).chain_err(|| "writing raw")?
+                writer.write_all(&bytes).context("writing raw")?
             },
             Zeo::TpcBegin(txn, user, desc, ext) => {
                 if ! transactions.contains_key(&txn) {
                     transactions.insert(
                         txn,
                         fs.tpc_begin(&user, &desc, &ext)
-                             .chain_err(|| "writer begin")?);
+                             .context("writer begin")?);
                 }
             },
             Zeo::Storea(oid, serial, data, txn) => {
                 if let Some(trans) = transactions.get_mut(&txn) {
                     trans.save(oid, serial, &data)
-                        .chain_err(|| "writer save")?;
+                        .context("writer save")?;
                 }
             },
             Zeo::Vote(id, txn) => {

@@ -1,8 +1,9 @@
 extern crate byteserver;
 
+use anyhow::{Context, Result};
+
 use byteserver::util;
 use byteserver::util::*;
-use byteserver::errors::*;
 
 enum ClientMessage {
     Locked(Tid),
@@ -32,11 +33,11 @@ impl PartialEq for Client {
 impl byteserver::storage::Client for Client {
     fn finished(&self, tid: &Tid, len:u64, size: u64) -> Result<()> {
         self.send.send(ClientMessage::Finished(tid.clone(), len, size))
-            .chain_err(|| "")
+            .context("")
     }
     fn invalidate(&self, tid: &Tid, oids: &Vec<Oid>) -> Result<()> {
         self.send.send(ClientMessage::Invalidate(
-            tid.clone(), oids.clone())).chain_err(|| "")
+            tid.clone(), oids.clone())).context("")
     }
     fn close(&self) {}
 }

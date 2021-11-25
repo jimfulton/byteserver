@@ -2,7 +2,7 @@
 use serde::bytes::ByteBuf;
 pub use serde::{Deserialize, Serialize};
 
-use crate::errors::*;
+use anyhow::{anyhow, Context, Result};
 use crate::util::*;
 
 #[macro_export]
@@ -11,8 +11,7 @@ macro_rules! decode {
         {
             let data = $data;
             let mut deserializer = rmp_serde::Deserializer::new(data);
-            Deserialize::deserialize(&mut deserializer)
-                .chain_err(|| $doing)
+            Deserialize::deserialize(&mut deserializer).context($doing)
         }
     )
 }
@@ -33,7 +32,7 @@ macro_rules! sencode {
             let mut buf: Vec<u8> = vec![];
             {
                 let mut encoder = rmp_serde::Serializer::new(&mut buf);
-                ($data).serialize(&mut encoder).chain_err(|| "encode")
+                ($data).serialize(&mut encoder).context("encode")
             }.and(Ok(size_vec(buf)))
         }
     )
@@ -104,7 +103,7 @@ impl<T: io::Read> ZeoIter<T> {
 
     fn read_want(&mut self, want: usize) -> Result<bool> {
         while self.input.len() < want {
-            let n = self.reader.read(&mut self.buf).chain_err(|| "reading")?;
+            let n = self.reader.read(&mut self.buf).context("reading")?;
             if n > 0 {
                 self.input.extend_from_slice(&self.buf[..n]);
             }
@@ -154,10 +153,9 @@ impl<T: io::Read> ZeoIter<T> {
 fn pre_parse(mut reader: &mut dyn io::Read)
              -> Result<(i64, String)> {
     let array_size =
-        rmp::decode::read_array_size(&mut reader)
-        .chain_err(|| "get mess size")?;
+        rmp::decode::read_array_size(&mut reader).context("get mess size")?;
     if array_size != 3 {
-        return Err(format!("Bad array size {}", array_size).into());
+        return Err(anyhow!("Invalid message size. Expect 3, got {}", array_size))?;
     }
     let id: i64 = decode!(&mut reader, "decoding message id")?;
     let method: String = decode!(&mut reader, "decoding message name")?;
@@ -171,10 +169,10 @@ fn parse_message(mut reader: &mut dyn io::Read) -> Result<Zeo> {
         "loadBefore" => {
             let (oid, before): (ByteBuf, ByteBuf) =
                 decode!(&mut reader, "decoding loadBefore oid")?;
-            let oid = read8(&mut (&*oid)).chain_err(|| "loadBefore oid")?;
+            let oid = read8(&mut (&*oid)).context("loadBefore oid")?;
             let before =
                 read8(&mut (&*before))
-                .chain_err(|| "loadBefore before")?;
+                .context("loadBefore before")?;
             Zeo::LoadBefore(id, oid, before)
         },
         "ping" => Zeo::Ping(id),
@@ -187,10 +185,10 @@ fn parse_message(mut reader: &mut dyn io::Read) -> Result<Zeo> {
         "storea" => {
             let (oid, committed, data, txn): (ByteBuf, ByteBuf, ByteBuf, u64) =
                 decode!(&mut reader, "decoding storea")?;
-            let oid = read8(&mut (&*oid)).chain_err(|| "storea oid")?;
+            let oid = read8(&mut (&*oid)).context("storea oid")?;
             let committed =
                 read8(&mut (&*committed))
-                .chain_err(|| "storea committed")?;
+                .context("storea committed")?;
             Zeo::Storea(oid, committed, data.to_vec(), txn)
         },
         "vote" => {
@@ -212,7 +210,7 @@ fn parse_message(mut reader: &mut dyn io::Read) -> Result<Zeo> {
                 decode!(&mut reader, "decoding register")?;
             Zeo::Register(id, storage, read_only)
         },
-        _ => return Err(format!("bad method {}", method).into())
+        _ => return Err(anyhow!("bad method {}", method))?
     })
 }
 

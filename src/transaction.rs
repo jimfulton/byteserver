@@ -1,4 +1,5 @@
-use crate::errors::*;
+use anyhow::{anyhow, Context, Result};
+
 use crate::util::*;
 use crate::index::Index;
 use crate::pool;
@@ -108,7 +109,7 @@ impl<'store, 't> Transaction<'store> {
             oids.reverse();
             Ok((self.id, oids))
         }          
-        else { Err("Invalid trans state".into()) }
+        else { Err(anyhow!("Invalid trans state")) }
     }
 
     pub fn locked(&mut self) -> Result<()>
@@ -117,7 +118,7 @@ impl<'store, 't> Transaction<'store> {
         std::mem::swap(&mut state, &mut self.state);
 
         if let TransactionState::Saving(mut data) = state {
-            match data.writer.flush().chain_err(|| "trans writer flush") {
+            match data.writer.flush().context("trans writer flush") {
                 Ok(_) => {
                     self.state = TransactionState::Voting(data);
                     Ok(())
@@ -130,7 +131,7 @@ impl<'store, 't> Transaction<'store> {
         }          
         else {
             std::mem::swap(&mut state, &mut self.state); // restore
-            Err("Invalid trans state".into())
+            Err(anyhow!("Invalid trans state"))
         }
     }
 
@@ -145,13 +146,13 @@ impl<'store, 't> Transaction<'store> {
                 }
                 err => {
                     self.state = TransactionState::Voting(data);
-                    Err("seek failed".into())
+                    Err(anyhow!("seek failed"))
                 },
             }
         }          
         else {
             std::mem::swap(&mut state, &mut self.state); // restore
-            Err("Invalid trans state".into())
+            Err(anyhow!("Invalid trans state"))
         }
 
     }
@@ -168,41 +169,41 @@ impl<'store, 't> Transaction<'store> {
     pub fn get_data(&mut self, oid: &Oid) -> Result<Bytes> {
         if let TransactionState::Voting(ref mut data) = self.state {
             let pos =
-                self.index.get(oid).ok_or(Error::from("trans index error"))?;
+                self.index.get(oid).ok_or(anyhow!("trans index error"))?;
             let mut file = data.filep.borrow_mut();
             file.seek(io::SeekFrom::Start(*pos))
-                 .chain_err(|| "trans seek")?;
+                 .context("trans seek")?;
             let dlen =
                 file.read_u32::<BigEndian>()
-                .chain_err(|| "trans read dlen")?;
+                .context("trans read dlen")?;
             let data = if dlen > 0 {
                 file.seek(
                     io::SeekFrom::Start(pos + records::DATA_HEADER_SIZE))
-                     .chain_err(|| "trans seek data")?;
+                     .context("trans seek data")?;
                 read_sized(&mut *file, dlen as usize)
-                    .chain_err(|| "trans read data")?
+                    .context("trans read data")?
             }
             else {
                 vec![0u8; 0]
             };
             Ok(data)
         }          
-        else { Err("Invalid trans state".into()) }
+        else { Err(anyhow!("Invalid trans state")) }
     }
 
     pub fn set_previous(&mut self, oid: &Oid, previous: u64) -> Result<()> {
         if let TransactionState::Voting(ref mut data) = self.state {
             let pos =
-                self.index.get(oid).ok_or(Error::from("trans index error"))?;
+                self.index.get(oid).ok_or(anyhow!("trans index error"))?;
             let mut file = data.filep.borrow_mut();
             file.seek(
                 io::SeekFrom::Start(pos + records::DATA_PREVIOUS_OFFSET))
-                 .chain_err(|| "trans seek prev")?;
+                 .context("trans seek prev")?;
             file.write_u64::<BigEndian>(previous)
-                .chain_err(|| "trans write previous")?;
+                .context("trans write previous")?;
             Ok(())
         }          
-        else { Err("Invalid trans state".into()) }
+        else { Err(anyhow!("Invalid trans state")) }
     }
     
     pub fn pack(&mut self) -> io::Result<()> {
