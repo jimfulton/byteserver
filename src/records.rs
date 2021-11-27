@@ -20,18 +20,18 @@ impl FileHeader {
         where T: std::io::Read + std::io::Seek
     {
         util::check_magic(&mut reader, HEADER_MARKER);
-        io_assert!(reader.read_u64::<BigEndian>()? == 4096,
-                   "Bad header length");
+        io_assert(reader.read_u64::<BigEndian>()? == 4096,
+                  "Bad header length")?;
         let alignment = reader.read_u64::<BigEndian>()?;
         let h = match String::from_utf8(read_sized16(&mut reader)?) {
             Ok(previous) =>
                 FileHeader { alignment: alignment, previous: previous },
             _ => return Err(io_error("Bad previous utf8")),
         };
-        io_assert!(reader.seek(io::SeekFrom::Start(4088))? == 4088,
-                   "Seek failed");
-        io_assert!(reader.read_u64::<BigEndian>()? == 4096,
-                   "Bad header extra length");
+        io_assert(reader.seek(io::SeekFrom::Start(4088))? == 4088,
+                  "Seek failed")?;
+        io_assert(reader.read_u64::<BigEndian>()? == 4096,
+                  "Bad header extra length")?;
         Ok(h)
     }
 
@@ -45,10 +45,10 @@ impl FileHeader {
         if self.previous.len() > 0 {
             writer.write_all(&self.previous.clone().into_bytes())?;
         }
-        io_assert!(
+        io_assert(
             writer.seek(io::SeekFrom::Start(4088))? == 4088,
             "seek failed"
-        );
+        )?;
         writer.write_u64::<BigEndian>(4096)?;
         Ok(())
     }

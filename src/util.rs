@@ -7,13 +7,12 @@ pub use std::boxed::Box;
 pub use std::cell::RefCell;
 pub use std::sync::{Arc, Mutex};
 
-#[macro_export]
-macro_rules! io_assert {
-    ($cond: expr, $msg: expr ) => (
-        if ! ($cond) {
-            return Err(io_error($msg))
-        }
-    )
+pub fn io_assert(cond: bool, message: &str) -> std::io::Result<()> {
+    if cond {
+        Ok(())
+    } else {
+        Err(io_error(message))
+    }
 }
 
 pub type Tid = [u8; 8];
@@ -37,7 +36,7 @@ pub fn io_error(message: &str) -> io::Error {
 pub fn check_magic(reader: &mut dyn io::Read, magic: &[u8]) -> io::Result<()> {
     let mut buf = [0u8; 4];
     reader.read_exact(&mut buf)?;
-    io_assert!(&buf == magic, "bad magic");
+    io_assert(&buf == magic, "bad magic")?;
     Ok(())
 }
 

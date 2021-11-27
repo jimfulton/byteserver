@@ -124,11 +124,11 @@ impl<C: Client> FileStorage<C> {
             if std::path::Path::new(&path).exists() {
                 let (index, segment_size, start, end) =
                     index::load_index(path)?;
-                io_assert!(size >= segment_size, "Index bad segment length");
+                io_assert(size >= segment_size, "Index bad segment length")?;
                 file.seek(io::SeekFrom::Start(records::HEADER_SIZE + 12))?;
-                io_assert!(read8(&mut file)? == start, "Index bad start");
+                io_assert(read8(&mut file)? == start, "Index bad start")?;
                 file.seek(io::SeekFrom::Start(segment_size - 8))?;
-                io_assert!(read8(&mut file)? == end, "Index bad end");
+                io_assert(read8(&mut file)? == end, "Index bad end")?;
                 (index, segment_size, end)
             }
             else {
@@ -157,8 +157,7 @@ impl<C: Client> FileStorage<C> {
                         reader.read_u64::<BigEndian>()?
                     },
                     _ => {
-                        io_assert!(
-                            false, &format!("Bad record marker {:?}", &marker));
+                        io_assert(false, &format!("Bad record marker {:?}", &marker))?;
                         0
                     }
                 };
