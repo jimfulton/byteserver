@@ -186,11 +186,11 @@ impl<C: Client> FileStorage<C> {
         match self.lookup_pos(oid) {
             Some(pos) => {
                 let p = self.readers.get().context("getting reader")?;
-                let mut file = p.borrow_mut();
+                let mut file = p.try_clone()?;
                 file.seek(io::SeekFrom::Start(pos))
                     .context("seeking to object record")?;
                 let mut header =
-                    records::DataHeader::read(&mut &*file)
+                    records::DataHeader::read(&mut &file)
                     .context("Reading object header")?;
                 let mut next: Option<Tid> = None;
                 while &header.tid >= tid {
@@ -201,11 +201,11 @@ impl<C: Client> FileStorage<C> {
                     file.seek(io::SeekFrom::Start(header.previous))
                         .context("seeking to previous")?;
                     header =
-                        records::DataHeader::read(&mut &*file)
+                        records::DataHeader::read(&mut &file)
                         .context("reading previous header")?;
                 }
                 Ok(LoadBeforeResult::Loaded(
-                    read_sized(&mut &*file, header.length as usize)
+                    read_sized(&mut &file, header.length as usize)
                         .context("Reading object data")?,
                     header.tid, next))
             },
@@ -260,14 +260,14 @@ impl<C: Client> FileStorage<C> {
         };
         let mut conflicts: Vec<Conflict> = vec![];
         let p = self.readers.get().context("getting reader")?;
-        let mut file = p.borrow_mut();
+        let mut file = p.try_clone()?;
         for (oid, serial, posop) in oid_serial_pos {
             match posop {
                 Some(pos) => {
                     file.seek(io::SeekFrom::Start(pos+12))
                         .context("Seeking to serial")?;
                     let committed =
-                        read8(&mut *file).context("Reading serial")?;
+                        read8(&mut file).context("Reading serial")?;
                     if committed != serial {
                         let data = trans.get_data(&oid)?;
                         conflicts.push(

@@ -23,7 +23,7 @@ impl<'store> TransactionData<'store> {
         self.writer.write_u32::<BigEndian>(count)?;
         self.writer.flush()?;
         let mut wpos = self.header_length;
-        let mut file = self.filep.borrow_mut();
+        let mut file = self.filep.try_clone()?;
         while wpos < self.length {
             file.seek(io::SeekFrom::Start(wpos))?;
             let dlen = file.read_u32::<BigEndian>()?;
@@ -55,7 +55,7 @@ impl<'store, 't> Transaction<'store> {
     pub fn begin(filep: pool::PooledFilePointer<'store, pool::TmpFileFactory>,
                  id: Tid, user: &[u8], desc: &[u8], ext: &[u8])
                  -> io::Result<Transaction<'store>> {
-        let mut file = filep.borrow().try_clone()?;
+        let mut file = filep.try_clone()?;
         file.seek(io::SeekFrom::Start(0))?;
         file.set_len(0)?;
         let mut writer = io::BufWriter::new(file);
@@ -160,7 +160,7 @@ impl<'store, 't> Transaction<'store> {
     pub fn serials(&'t mut self) -> io::Result<TransactionSerialIterator<'t>> {
         if let TransactionState::Voting(ref mut data) = self.state {
             TransactionSerialIterator::new(
-                data.filep.borrow().try_clone()?,
+                data.filep.try_clone()?,
                 &self.index, data.length, data.header_length)
         }
         else { Err(io_error("Invalid trans state")) }
@@ -170,7 +170,7 @@ impl<'store, 't> Transaction<'store> {
         if let TransactionState::Voting(ref mut data) = self.state {
             let pos =
                 self.index.get(oid).ok_or(anyhow!("trans index error"))?;
-            let mut file = data.filep.borrow_mut();
+            let mut file = data.filep.try_clone()?;
             file.seek(io::SeekFrom::Start(*pos))
                  .context("trans seek")?;
             let dlen =
@@ -180,7 +180,7 @@ impl<'store, 't> Transaction<'store> {
                 file.seek(
                     io::SeekFrom::Start(pos + records::DATA_HEADER_SIZE))
                      .context("trans seek data")?;
-                read_sized(&mut *file, dlen as usize)
+                read_sized(&mut file, dlen as usize)
                     .context("trans read data")?
             }
             else {
@@ -195,7 +195,7 @@ impl<'store, 't> Transaction<'store> {
         if let TransactionState::Voting(ref mut data) = self.state {
             let pos =
                 self.index.get(oid).ok_or(anyhow!("trans index error"))?;
-            let mut file = data.filep.borrow_mut();
+            let mut file = data.filep.try_clone()?;
             file.seek(
                 io::SeekFrom::Start(pos + records::DATA_PREVIOUS_OFFSET))
                  .context("trans seek prev")?;
@@ -210,7 +210,7 @@ impl<'store, 't> Transaction<'store> {
         // If necessary, pack out records that were overwritten.
         // Also write length into header.
         if let TransactionState::Voting(ref mut data) = self.state {
-            let mut file = data.filep.borrow_mut();
+            let mut file = data.filep.try_clone()?;
 
             if data.needs_to_be_packed {
                 let mut rpos = data.header_length;
@@ -231,7 +231,7 @@ impl<'store, 't> Transaction<'store> {
                             // We need to move it.
                             let mut rest = // tid, previous, offset, data
                                 read_sized(
-                                    &mut *file,
+                                    &mut file,
                                     dlen as usize +
                                         records::DATA_HEADER_SIZE as usize
                                         - 12)?;
@@ -268,11 +268,11 @@ impl<'store, 't> Transaction<'store> {
             if let TransactionState::Voting(ref mut data) = self.state {
                 // Update tids in temp file
                 data.save_tid(tid, self.index.len() as u32)?;
-                let mut file = data.filep.borrow_mut();
+                let mut file = data.filep.try_clone()?;
                 file.seek(io::SeekFrom::Start(0))?;
                 
                 data.length += 8;
-                assert_eq!(io::copy(&mut *file, &mut out)?, data.length);
+                assert_eq!(io::copy(&mut file, &mut out)?, data.length);
                 
                 // Truncate to 0 in hopes of avoiding write to disk
                 file.set_len(0)?;
@@ -380,7 +380,7 @@ pub mod tests {
             22);
 
         let tempfilep = pool.get().unwrap();
-        let tempfile = tempfilep.borrow().try_clone().unwrap();
+        let tempfile = tempfilep.try_clone().unwrap();
 
         let mut trans = Transaction::begin(
             tempfilep, p64(1234567890), b"user", b"desc", b"{}").unwrap();
@@ -404,25 +404,25 @@ pub mod tests {
         trans.pack().unwrap();
 
         let t2 = pool.get().unwrap();
-        let mut file = t2.borrow_mut();
+        let mut file = t2.try_clone().unwrap();
         let (index, tsize) = trans.stage(p64(1234567891), &mut file).unwrap();
 
         // Now, we'll verify the saved data.
         let l = file.seek(io::SeekFrom::End(0)).unwrap();
         assert_eq!(tsize, l);
-        seek(&mut *file, 0).unwrap();
-        assert_eq!(&read4(&mut *file).unwrap(), b"PPPP");
-        let th = records::TransactionHeader::read(&mut *file).unwrap();
+        seek(&mut file, 0).unwrap();
+        assert_eq!(&read4(&mut file).unwrap(), b"PPPP");
+        let th = records::TransactionHeader::read(&mut file).unwrap();
         assert_eq!(
             th,
             records::TransactionHeader {
                 length: l, id: p64(1234567891), ndata: 2,
                 luser: 4, ldesc: 4, lext: 2 });
-        assert_eq!(&read4(&mut *file).unwrap(), b"user");
-        assert_eq!(&read4(&mut *file).unwrap(), b"desc");
-        assert_eq!(&read_sized(&mut *file, 2).unwrap(), b"{}");
+        assert_eq!(&read4(&mut file).unwrap(), b"user");
+        assert_eq!(&read4(&mut file).unwrap(), b"desc");
+        assert_eq!(&read_sized(&mut file, 2).unwrap(), b"{}");
 
-        let dh1 = records::DataHeader::read(&mut *file).unwrap();
+        let dh1 = records::DataHeader::read(&mut file).unwrap();
         assert_eq!(
             dh1,
             records::DataHeader {
@@ -430,10 +430,10 @@ pub mod tests {
                 previous: 0,
                 offset: records::TRANSACTION_HEADER_LENGTH + 14,
             });
-        assert_eq!(read_sized(&mut *file, dh1.length as usize).unwrap(),
+        assert_eq!(read_sized(&mut file, dh1.length as usize).unwrap(),
                    vec![2; 22]);
 
-        let dh0 = records::DataHeader::read(&mut *file).unwrap();
+        let dh0 = records::DataHeader::read(&mut file).unwrap();
         assert_eq!(
             dh0,
             records::DataHeader {
@@ -442,10 +442,10 @@ pub mod tests {
                 offset:
                 dh1.offset + records::DATA_HEADER_SIZE + dh1.length as u64,
             });
-        assert_eq!(read_sized(&mut *file, dh0.length as usize).unwrap(),
+        assert_eq!(read_sized(&mut file, dh0.length as usize).unwrap(),
                    vec![3; 33]);
 
-        assert_eq!(read_u64(&mut *file).unwrap(), l); // Check redundant length
+        assert_eq!(read_u64(&mut file).unwrap(), l); // Check redundant length
 
         assert_eq!(
             index, {
@@ -467,7 +467,7 @@ pub mod tests {
             22);
 
         let tempfilep = pool.get().unwrap();
-        let tempfile = tempfilep.borrow().try_clone().unwrap();
+        let tempfile = tempfilep.try_clone().unwrap();
 
         let mut trans = Transaction::begin(
             tempfilep, p64(1234567890), b"user", b"desc", b"{}").unwrap();
@@ -493,7 +493,7 @@ pub mod tests {
 
         assert_eq!(pool.len(), 0);
         
-        let mut file = t2.borrow_mut();
+        let mut file = t2.try_clone().unwrap();
         let (index, tsize) = trans.stage(p64(1234567891), &mut file).unwrap();
 
         assert_eq!(pool.len(), 1); // The transaction's tmp file ws returned.
@@ -501,19 +501,19 @@ pub mod tests {
         // Now, we'll verify the saved data.
         let l = file.seek(io::SeekFrom::End(0)).unwrap();
         assert_eq!(tsize, l);
-        seek(&mut *file, 0).unwrap();
-        assert_eq!(&read4(&mut *file).unwrap(), b"PPPP");
-        let th = records::TransactionHeader::read(&mut *file).unwrap();
+        seek(&mut file, 0).unwrap();
+        assert_eq!(&read4(&mut file).unwrap(), b"PPPP");
+        let th = records::TransactionHeader::read(&mut file).unwrap();
         assert_eq!(
             th,
             records::TransactionHeader {
                 length: l, id: p64(1234567891), ndata: 2,
                 luser: 4, ldesc: 4, lext: 2 });
-        assert_eq!(&read4(&mut *file).unwrap(), b"user");
-        assert_eq!(&read4(&mut *file).unwrap(), b"desc");
-        assert_eq!(&read_sized(&mut *file, 2).unwrap(), b"{}");
+        assert_eq!(&read4(&mut file).unwrap(), b"user");
+        assert_eq!(&read4(&mut file).unwrap(), b"desc");
+        assert_eq!(&read_sized(&mut file, 2).unwrap(), b"{}");
 
-        let dh0 = records::DataHeader::read(&mut *file).unwrap();
+        let dh0 = records::DataHeader::read(&mut file).unwrap();
         assert_eq!(
             dh0,
             records::DataHeader {
@@ -521,10 +521,10 @@ pub mod tests {
                 previous: 7777,
                 offset: records::TRANSACTION_HEADER_LENGTH + 14,
             });
-        assert_eq!(read_sized(&mut *file, dh0.length as usize).unwrap(),
+        assert_eq!(read_sized(&mut file, dh0.length as usize).unwrap(),
                    vec![1; 11]);
 
-        let dh1 = records::DataHeader::read(&mut *file).unwrap();
+        let dh1 = records::DataHeader::read(&mut file).unwrap();
         assert_eq!(
             dh1,
             records::DataHeader {
@@ -533,10 +533,10 @@ pub mod tests {
                 offset:
                 dh0.offset + records::DATA_HEADER_SIZE + dh0.length as u64,
             });
-        assert_eq!(read_sized(&mut *file, dh1.length as usize).unwrap(),
+        assert_eq!(read_sized(&mut file, dh1.length as usize).unwrap(),
                    vec![2; 22]);
 
-        assert_eq!(read_u64(&mut *file).unwrap(), l); // Check redundant length
+        assert_eq!(read_u64(&mut file).unwrap(), l); // Check redundant length
 
         assert_eq!(
             index, {
