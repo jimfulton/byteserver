@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 
 use crate::storage;
 use crate::transaction;
-use crate::util::*;
+use crate::util;
 use crate::msg::*;
 
 macro_rules! respond {
@@ -49,12 +49,12 @@ impl PartialEq for Client {
 }
 
 impl crate::storage::Client for Client {
-    fn finished(&self, tid: &Tid, len: u64, size: u64) -> Result<()>  {
+    fn finished(&self, tid: &util::Tid, len: u64, size: u64) -> Result<()>  {
         self.send.send(
             Zeo::Finished(self.request_id, tid.clone(), len, size)
         ).context("send finished")
     }
-    fn invalidate(&self, tid: &Tid, oids: &Vec<Oid>) -> Result<()>  {
+    fn invalidate(&self, tid: &util::Tid, oids: &Vec<util::Oid>) -> Result<()>  {
         self.send.send(Zeo::Invalidate(
             tid.clone(), oids.clone())).context("send invalidate")
     }
@@ -62,7 +62,7 @@ impl crate::storage::Client for Client {
 }
 
 struct TransactionsHolder<'store> {
-    fs: Arc<storage::FileStorage<Client>>,
+    fs: std::sync::Arc<storage::FileStorage<Client>>,
     transactions: HashMap<u64, transaction::Transaction<'store>>,
 }
 
@@ -74,8 +74,8 @@ impl<'store> Drop for TransactionsHolder<'store> {
     }
 }
 
-pub fn writer<W: io::Write>(
-    fs: Arc<storage::FileStorage<Client>>,
+pub fn writer<W: std::io::Write>(
+    fs: std::sync::Arc<storage::FileStorage<Client>>,
     mut writer: W,
     receiver: std::sync::mpsc::Receiver<Zeo>,
     client: Client)
