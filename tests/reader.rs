@@ -1,19 +1,17 @@
 // Test of the byteserver reader process
-
-extern crate byteorder;
-extern crate serde;
+use std::io::prelude::*;
 
 #[macro_use]
 extern crate byteserver;
-extern crate pipe;
 
 use std::collections::BTreeMap;
 
 use anyhow::Context;
+use byteorder::{ByteOrder, BigEndian};
 use serde::bytes::ByteBuf;
 
 use byteserver::msg::*;
-use byteserver::util::*;
+use byteserver::util;
 use byteserver::reader;
 use byteserver::writer;
 use byteserver::storage;
@@ -34,11 +32,11 @@ fn basic() {
 
     storage::testing::make_sample(
         &path,
-        vec![vec![(Z64, b"000")],
-             vec![(Z64, b"111"), (p64(3), b"ooo")],
+        vec![vec![(util::Z64, b"000")],
+             vec![(util::Z64, b"111"), (util::p64(3), b"ooo")],
         ],
     ).unwrap();
-    let fs = Arc::new(
+    let fs = std::sync::Arc::new(
         storage::FileStorage::<writer::Client>::open(path).unwrap());
     let read_fs = fs.clone();
 
@@ -58,7 +56,7 @@ fn basic() {
                 decode!(&mut (&r as &[u8]),
                         "decoding register response").unwrap();
             assert_eq!(id, 1); assert_eq!(&code, "R");
-            assert_eq!(read8(&mut (&*tid)).unwrap(), fs.last_transaction());
+            assert_eq!(util::read8(&mut (&*tid)).unwrap(), fs.last_transaction());
         }, _ => panic!("invalid message")
     }
     // get_info(), mostly punt for now:
@@ -77,7 +75,7 @@ fn basic() {
     // current:
     let now = tid::next(&tid::now_tid());
     writer.write_all(
-        &sencode!((3, "loadBefore", (Z64, now))).unwrap()).unwrap();
+        &sencode!((3, "loadBefore", (util::Z64, now))).unwrap()).unwrap();
     let tid1 = match rx.recv().unwrap() {
         Zeo::Raw(r) => {
             let r = unsize(r);
@@ -88,12 +86,12 @@ fn basic() {
             assert_eq!(id, 3); assert_eq!(&code, "R");
             assert_eq!(&*data, b"111");
             assert!(end.is_none());
-            read8(&mut &*tid).unwrap()
+            util::read8(&mut &*tid).unwrap()
         }, _ => panic!("invalid message")
     };
     // previous
     writer.write_all(
-        &sencode!((3, "loadBefore", (Z64, tid1))).unwrap()).unwrap();
+        &sencode!((3, "loadBefore", (util::Z64, tid1))).unwrap()).unwrap();
     let tid0 = match rx.recv().unwrap() {
         Zeo::Raw(r) => {
             let r = unsize(r);
@@ -103,13 +101,13 @@ fn basic() {
                         "decoding loadBefore response").unwrap();
             assert_eq!(id, 3); assert_eq!(&code, "R");
             assert_eq!(&*data, b"000");
-            assert_eq!(read8(&mut &*end.unwrap()).unwrap(), tid1);
-            read8(&mut &*tid).unwrap()
+            assert_eq!(util::read8(&mut &*end.unwrap()).unwrap(), tid1);
+            util::read8(&mut &*tid).unwrap()
         }, _ => panic!("invalid message")
     };
     // pre creation
     writer.write_all(
-        &sencode!((3, "loadBefore", (Z64, tid0))).unwrap()).unwrap();
+        &sencode!((3, "loadBefore", (util::Z64, tid0))).unwrap()).unwrap();
     match rx.recv().unwrap() {
         Zeo::Raw(r) => {
             let r = unsize(r);
@@ -122,7 +120,7 @@ fn basic() {
     }
     // Error
     writer.write_all(
-        &sencode!((3, "loadBefore", (p64(9), tid0))).unwrap()).unwrap();
+        &sencode!((3, "loadBefore", (util::p64(9), tid0))).unwrap()).unwrap();
     match rx.recv().unwrap() {
         Zeo::Raw(r) => {
             let r = unsize(r);
@@ -132,7 +130,7 @@ fn basic() {
                         "decoding loadBefore response").unwrap();
             assert_eq!(id, 3); assert_eq!(&code, "E");
             assert_eq!(ename, "ZODB.POSException.POSKeyError");
-            assert_eq!(&*oid, &p64(9))
+            assert_eq!(&*oid, &util::p64(9))
         }, _ => panic!("invalid message")
     }
 
@@ -161,7 +159,7 @@ fn basic() {
             assert_eq!(
                 oids,
                 (4..104)
-                    .map(| oid | ByteBuf::from(p64(oid).to_vec()))
+                    .map(| oid | ByteBuf::from(util::p64(oid).to_vec()))
                     .collect::<Vec<ByteBuf>>()
             )
         }, _ => panic!("invalid message")
@@ -178,12 +176,12 @@ fn basic() {
         }, _ => panic!("invalid message")
     }
     writer.write_all(
-        &sencode!((0, "storea", (Z64, fs.last_transaction(), b"111", 42)))
+        &sencode!((0, "storea", (util::Z64, fs.last_transaction(), b"111", 42)))
                   .unwrap()).unwrap();
     match rx.recv().unwrap() {
         Zeo::Storea(oid, serial, data, 42) => {
             assert_eq!((oid, serial, data),
-                       (Z64, fs.last_transaction(), b"111".to_vec()));
+                       (util::Z64, fs.last_transaction(), b"111".to_vec()));
         }, _ => panic!("invalid message")
     }
     writer.write_all(
