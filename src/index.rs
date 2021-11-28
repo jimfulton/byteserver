@@ -1,7 +1,7 @@
 // File-storage index-file and mmap index
 use std::io::prelude::*;
 
-pub use byteorder::{ReadBytesExt, WriteBytesExt};
+use byteorder::{ReadBytesExt, WriteBytesExt};
 
 use crate::util;
 
