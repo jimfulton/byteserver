@@ -6,6 +6,7 @@ use crate::pool;
 use crate::records;
 
 static PADDING16: [u8; 16] = [0u8; 16]; 
+pub const PADDING_MARKER: &'static [u8] = b"PPPP";
 
 pub struct TransactionData<'store> {
     filep: pool::TmpFilePointer<'store>,

@@ -17,7 +17,8 @@ use crate::transaction;
 
 use crate::util;
 
-static INDEX_SUFFIX: &'static str = ".index";
+const INDEX_SUFFIX: &'static str = ".index";
+const TRANSACTION_MARKER: &'static [u8] = b"TTTT";
 
 #[derive(Debug)]
 pub enum LoadBeforeResult {
@@ -146,7 +147,7 @@ impl<C: Client> FileStorage<C> {
             while pos < size {
                 let marker = util::read4(&mut reader)?;
                 let length = match &marker {
-                    m if m == util::TRANSACTION_MARKER => {
+                    m if m == TRANSACTION_MARKER => {
                         let header =
                             records::TransactionHeader::read(&mut reader)?;
                         last_oid = header.update_index(
@@ -155,7 +156,7 @@ impl<C: Client> FileStorage<C> {
                         end = header.id;
                         header.length
                     },
-                    m if m == util::PADDING_MARKER => {
+                    m if m == transaction::PADDING_MARKER => {
                         reader.read_u64::<BigEndian>()?
                     },
                     _ => {
@@ -321,7 +322,7 @@ impl<C: Client> FileStorage<C> {
                 let mut file = self.file.lock().unwrap();
                 file.seek(std::io::SeekFrom::Start(v.pos))
                     .context("seeking tpc_finish")?;
-                file.write_all(util::TRANSACTION_MARKER)
+                file.write_all(TRANSACTION_MARKER)
                     .context("writing trans marker tpc_finish")?;
                 file.sync_all().context("fsync")?;
                 break;

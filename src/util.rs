@@ -19,9 +19,6 @@ pub type Tid = [u8; 8];
 pub type Oid = [u8; 8];
 pub type Bytes = Vec<u8>;
 
-pub static TRANSACTION_MARKER: &'static [u8] = b"TTTT";
-pub static PADDING_MARKER: &'static [u8] = b"PPPP";
-
 pub static Z64: [u8; 8] = [0u8; 8];
 pub fn p64(i: u64) -> [u8; 8] {
     let mut r = [0u8; 8];
