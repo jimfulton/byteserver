@@ -421,7 +421,6 @@ unsafe impl<C: Client> std::marker::Send for FileStorage<C> {}
 unsafe impl<C: Client> std::marker::Sync for FileStorage<C> {}
 
 pub mod testing {
-    use crate::util::*;
 
     use super::*;
     
