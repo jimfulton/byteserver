@@ -1,9 +1,11 @@
 
+use byteorder::{BigEndian, ByteOrder};
+
 use serde::bytes::ByteBuf;
 pub use serde::{Deserialize, Serialize};
 
 use anyhow::{anyhow, Context, Result};
-use crate::util::*;
+use crate::util;
 
 #[macro_export]
 macro_rules! decode {
@@ -71,11 +73,11 @@ pub enum Zeo {
     End,
 
     Register(i64, String, bool),
-    LoadBefore(i64, Oid, Tid),
+    LoadBefore(i64, util::Oid, util::Tid),
     GetInfo(i64),
     NewOids(i64),
-    TpcBegin(u64, Bytes, Bytes, Bytes),
-    Storea(Oid, Tid, Bytes, u64),
+    TpcBegin(u64, util::Bytes, util::Bytes, util::Bytes),
+    Storea(util::Oid, util::Tid, util::Bytes, u64),
     Vote(i64, u64),
     TpcFinish(i64, u64),
     TpcAbort(i64, u64),
@@ -83,11 +85,11 @@ pub enum Zeo {
 
     Locked(i64, u64),
 
-    Finished(i64, Tid, u64, u64),
-    Invalidate(Tid, Vec<Oid>),
+    Finished(i64, util::Tid, u64, u64),
+    Invalidate(util::Tid, Vec<util::Oid>),
 }
 
-pub struct ZeoIter<T: io::Read> {
+pub struct ZeoIter<T: std::io::Read> {
     reader: T,
     buf: [u8; 1<<16],
     input: Vec<u8>,
@@ -95,7 +97,7 @@ pub struct ZeoIter<T: io::Read> {
 
 static HEARTBEAT_PREFIX: [u8; 2] = [147, 255];
 
-impl<T: io::Read> ZeoIter<T> {
+impl<T: std::io::Read> ZeoIter<T> {
 
     pub fn new(reader: T) -> ZeoIter<T> {
         ZeoIter { reader: reader, buf: [0u8; 1<<16], input: vec![] }
@@ -144,13 +146,13 @@ impl<T: io::Read> ZeoIter<T> {
             return self.next()    // skip heartbeats
         }
         //println!("Read vec {:?}", &data[4..]);
-        let mut reader = io::Cursor::new(data.split_off(4));
+        let mut reader = std::io::Cursor::new(data.split_off(4));
         parse_message(&mut reader)
     }
 
 }
 
-fn pre_parse(mut reader: &mut dyn io::Read)
+fn pre_parse(mut reader: &mut dyn std::io::Read)
              -> Result<(i64, String)> {
     let array_size =
         rmp::decode::read_array_size(&mut reader).context("get mess size")?;
@@ -162,16 +164,16 @@ fn pre_parse(mut reader: &mut dyn io::Read)
     Ok((id, method))
 }
 
-fn parse_message(mut reader: &mut dyn io::Read) -> Result<Zeo> {
+fn parse_message(mut reader: &mut dyn std::io::Read) -> Result<Zeo> {
     let (id, method) = pre_parse(&mut reader)?;
 
     Ok(match method.as_ref() {
         "loadBefore" => {
             let (oid, before): (ByteBuf, ByteBuf) =
                 decode!(&mut reader, "decoding loadBefore oid")?;
-            let oid = read8(&mut (&*oid)).context("loadBefore oid")?;
+            let oid = util::read8(&mut (&*oid)).context("loadBefore oid")?;
             let before =
-                read8(&mut (&*before))
+                util::read8(&mut (&*before))
                 .context("loadBefore before")?;
             Zeo::LoadBefore(id, oid, before)
         },
@@ -185,9 +187,9 @@ fn parse_message(mut reader: &mut dyn io::Read) -> Result<Zeo> {
         "storea" => {
             let (oid, committed, data, txn): (ByteBuf, ByteBuf, ByteBuf, u64) =
                 decode!(&mut reader, "decoding storea")?;
-            let oid = read8(&mut (&*oid)).context("storea oid")?;
+            let oid = util::read8(&mut (&*oid)).context("storea oid")?;
             let committed =
-                read8(&mut (&*committed))
+                util::read8(&mut (&*committed))
                 .context("storea committed")?;
             Zeo::Storea(oid, committed, data.to_vec(), txn)
         },
@@ -221,7 +223,6 @@ fn parse_message(mut reader: &mut dyn io::Read) -> Result<Zeo> {
 mod tests {
 
     use super::*;
-    use std::io;
 
     #[test]
     fn parsing() {
@@ -237,7 +238,7 @@ mod tests {
             &[0, 0, 0, 34, 147, 2, 170, 108, 111, 97, 100, 66, 101,
               102, 111, 114, 101, 146, 196, 8, 0, 0, 0, 0, 0, 0, 0, 0,
               196, 8, 1, 1, 1, 1, 1, 1, 1, 1]);
-        let reader = io::Cursor::new(buf);
+        let reader = std::io::Cursor::new(buf);
 
         let mut it = ZeoIter::new(reader);
         assert_eq!(&it.next_vec().unwrap(), b"M5");
