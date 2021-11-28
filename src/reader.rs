@@ -1,9 +1,8 @@
 // Read side of server.
-use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use crate::storage;
 use crate::writer;
-use crate::util::*;
 use crate::msg::*;
 use anyhow::{anyhow, Context, Result};
 
@@ -21,7 +20,7 @@ macro_rules! error {
     )
 }
 
-pub fn reader<R: io::Read>(
+pub fn reader<R: std::io::Read>(
     fs: Arc<storage::FileStorage<writer::Client>>,
     reader: R,
     sender: std::sync::mpsc::Sender<Zeo>)
@@ -87,7 +86,7 @@ pub fn reader<R: io::Read>(
                 respond!(sender, id, oids)
             },
             Zeo::GetInfo(id) => { // TODO, don't punt :)
-                respond!(sender, id, BTreeMap::<String, i64>::new())
+                respond!(sender, id, std::collections::BTreeMap::<String, i64>::new())
             },
             Zeo::TpcBegin(_, _, _, _) | Zeo::Storea(_, _, _, _) |
             Zeo::Vote(_, _) | Zeo::TpcFinish(_, _) |  Zeo::TpcAbort(_, _)
