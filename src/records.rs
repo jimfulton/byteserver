@@ -1,3 +1,4 @@
+#[allow(unused_imports)]
 use std::io::prelude::*;
 
 use byteorder::{ByteOrder, BigEndian, ReadBytesExt, WriteBytesExt};
