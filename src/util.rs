@@ -1,11 +1,4 @@
-pub use byteorder::{ByteOrder, BigEndian, ReadBytesExt, WriteBytesExt};
-pub use std::io;
-pub use std::io::prelude::*;
-pub use std::fs::File;
-
-pub use std::boxed::Box;
-pub use std::cell::RefCell;
-pub use std::sync::{Arc, Mutex};
+use byteorder::{ByteOrder, BigEndian, ReadBytesExt, WriteBytesExt};
 
 pub fn io_assert(cond: bool, message: &str) -> std::io::Result<()> {
     if cond {
@@ -26,19 +19,20 @@ pub fn p64(i: u64) -> [u8; 8] {
     r
 }
 
-pub fn io_error(message: &str) -> io::Error {
-    io::Error::new(io::ErrorKind::Other, message)
+pub fn io_error(message: &str) -> std::io::Error {
+    std::io::Error::new(std::io::ErrorKind::Other, message)
 }
 
-pub fn check_magic(reader: &mut dyn io::Read, magic: &[u8]) -> io::Result<()> {
+pub fn check_magic(
+    reader: &mut dyn std::io::Read, magic: &[u8]) -> std::io::Result<()> {
     let mut buf = [0u8; 4];
     reader.read_exact(&mut buf)?;
     io_assert(&buf == magic, "bad magic")?;
     Ok(())
 }
 
-pub fn read_sized(reader: &mut dyn io::Read, size: usize)
-                  -> io::Result<Vec<u8>> {
+pub fn read_sized(reader: &mut dyn std::io::Read, size: usize)
+                  -> std::io::Result<Vec<u8>> {
     if size > 0 {
         let mut r = vec![0u8; size];
         reader.read_exact(&mut r)?;
@@ -50,61 +44,61 @@ pub fn read_sized(reader: &mut dyn io::Read, size: usize)
 }
 
 
-pub fn read_sized16(reader: &mut dyn io::Read) -> io::Result<Vec<u8>> {
+pub fn read_sized16(reader: &mut dyn std::io::Read) -> std::io::Result<Vec<u8>> {
     let size = reader.read_u16::<BigEndian>()? as usize;
     read_sized(reader, size)
 }
 
-pub fn read1(reader: &mut dyn io::Read) -> io::Result<u8> {
+pub fn read1(reader: &mut dyn std::io::Read) -> std::io::Result<u8> {
     let mut r = [0u8];
     reader.read_exact(&mut r)?;
     Ok(r[0])
 }
 
-pub fn read4(reader: &mut dyn io::Read) -> io::Result<[u8; 4]> {
+pub fn read4(reader: &mut dyn std::io::Read) -> std::io::Result<[u8; 4]> {
     let mut r = [0u8; 4];
     reader.read_exact(&mut r)?;
-    Ok::<[u8; 4], io::Error>(r)
+    Ok::<[u8; 4], std::io::Error>(r)
 }
 
-pub fn read8(reader: &mut dyn io::Read) -> io::Result<[u8; 8]> {
+pub fn read8(reader: &mut dyn std::io::Read) -> std::io::Result<[u8; 8]> {
     let mut r = [0u8; 8];
     reader.read_exact(&mut r)?;
-    Ok::<[u8; 8], io::Error>(r)
+    Ok::<[u8; 8], std::io::Error>(r)
 }
 
-pub type Ob<T> = Arc<RefCell<T>>;
+pub type Ob<T> = std::sync::Arc<std::cell::RefCell<T>>;
 
 pub fn new_ob<T>(v: T) -> Ob<T> {
-    Arc::new(RefCell::new(v))
+    std::sync::Arc::new(std::cell::RefCell::new(v))
 }
 
-pub fn read_u16(r: &mut dyn io::Read) -> io::Result<u16> {
+pub fn read_u16(r: &mut dyn std::io::Read) -> std::io::Result<u16> {
     r.read_u16::<BigEndian>()
 }
 
-pub fn read_u32(r: &mut dyn io::Read) -> io::Result<u32> {
+pub fn read_u32(r: &mut dyn std::io::Read) -> std::io::Result<u32> {
     r.read_u32::<BigEndian>()
 }
 
-pub fn read_u64(r: &mut dyn io::Read) -> io::Result<u64> {
+pub fn read_u64(r: &mut dyn std::io::Read) -> std::io::Result<u64> {
     r.read_u64::<BigEndian>()
 }
 
-pub fn write_u16(w: &mut dyn io::Write, v: u16) -> io::Result<()> {
+pub fn write_u16(w: &mut dyn std::io::Write, v: u16) -> std::io::Result<()> {
     w.write_u16::<BigEndian>(v)
 }
 
-pub fn write_u32(w: &mut dyn io::Write, v: u32) -> io::Result<()> {
+pub fn write_u32(w: &mut dyn std::io::Write, v: u32) -> std::io::Result<()> {
     w.write_u32::<BigEndian>(v)
 }
 
-pub fn write_u64(w: &mut dyn io::Write, v: u64) -> io::Result<()> {
+pub fn write_u64(w: &mut dyn std::io::Write, v: u64) -> std::io::Result<()> {
     w.write_u64::<BigEndian>(v)
 }
 
-pub fn seek(s: &mut dyn io::Seek, pos: u64) -> io::Result<u64> {
-    s.seek(io::SeekFrom::Start(pos))
+pub fn seek(s: &mut dyn std::io::Seek, pos: u64) -> std::io::Result<u64> {
+    s.seek(std::io::SeekFrom::Start(pos))
 }
 
 
