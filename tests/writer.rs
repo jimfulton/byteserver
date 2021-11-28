@@ -8,7 +8,8 @@ use std::collections::BTreeMap;
 use anyhow::Context;
 use serde::bytes::ByteBuf;
 
-use byteserver::msg::*;
+use byteserver::msg;
+use byteserver::msgmacros::*;
 use byteserver::util;
 use byteserver::writer;
 use byteserver::storage;
@@ -33,16 +34,16 @@ fn basic() {
     std::thread::spawn(
         move || writer::writer(write_fs, writer, rx, write_client).unwrap());
 
-    let mut reader = ZeoIter::new(reader);
+    let mut reader = msg::ZeoIter::new(reader);
 
     // Handshake:
     assert_eq!(&reader.next_vec().unwrap(), b"M5");
 
     // Lets write some data:
-    tx.send(Zeo::TpcBegin(42, b"u".to_vec(), b"d".to_vec(), b"{}".to_vec()))
+    tx.send(msg::Zeo::TpcBegin(42, b"u".to_vec(), b"d".to_vec(), b"{}".to_vec()))
         .unwrap();
-    tx.send(Zeo::Storea(util::p64(1), util::Z64, b"ooo".to_vec(), 42)).unwrap();
-    tx.send(Zeo::Vote(11, 42)).unwrap();
+    tx.send(msg::Zeo::Storea(util::p64(1), util::Z64, b"ooo".to_vec(), 42)).unwrap();
+    tx.send(msg::Zeo::Vote(11, 42)).unwrap();
 
     // We get back any conflicts:
     let (msgid, flag, conflicts): (
@@ -54,7 +55,7 @@ fn basic() {
     assert_eq!(conflicts.len(), 0);
 
     // And we finish, getting back a tid and info:
-    tx.send(Zeo::TpcFinish(12, 42)).unwrap();
+    tx.send(msg::Zeo::TpcFinish(12, 42)).unwrap();
     let (msgid, flag, tid): (i64, String, ByteBuf) =
         decode!(&mut (&reader.next_vec().unwrap() as &[u8]),
                 "decoding finish response").unwrap();

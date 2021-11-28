@@ -5,7 +5,8 @@ use anyhow::{Context, Result};
 use crate::storage;
 use crate::transaction;
 use crate::util;
-use crate::msg::*;
+use crate::msg;
+use crate::msgmacros::*;
 
 macro_rules! respond {
     ($writer: expr, $id: expr, $data: expr) => (
@@ -31,12 +32,12 @@ macro_rules! async_ {
 #[derive(Debug, Clone)]
 pub struct Client {
     name: String,
-    send: std::sync::mpsc::Sender<Zeo>,
+    send: std::sync::mpsc::Sender<msg::Zeo>,
     request_id: i64,
 }
 
 impl Client {
-    pub fn new(name: String, send: std::sync::mpsc::Sender<Zeo>)
+    pub fn new(name: String, send: std::sync::mpsc::Sender<msg::Zeo>)
            -> Client {
         Client {name: name, send: send, request_id: 0}
     }
@@ -51,11 +52,11 @@ impl PartialEq for Client {
 impl crate::storage::Client for Client {
     fn finished(&self, tid: &util::Tid, len: u64, size: u64) -> Result<()>  {
         self.send.send(
-            Zeo::Finished(self.request_id, tid.clone(), len, size)
+            msg::Zeo::Finished(self.request_id, tid.clone(), len, size)
         ).context("send finished")
     }
     fn invalidate(&self, tid: &util::Tid, oids: &Vec<util::Oid>) -> Result<()>  {
-        self.send.send(Zeo::Invalidate(
+        self.send.send(msg::Zeo::Invalidate(
             tid.clone(), oids.clone())).context("send invalidate")
     }
     fn close(&self) {}
@@ -77,11 +78,11 @@ impl<'store> Drop for TransactionsHolder<'store> {
 pub fn writer<W: std::io::Write>(
     fs: std::sync::Arc<storage::FileStorage<Client>>,
     mut writer: W,
-    receiver: std::sync::mpsc::Receiver<Zeo>,
+    receiver: std::sync::mpsc::Receiver<msg::Zeo>,
     client: Client)
     -> Result<()> {
 
-    writer.write_all(&size_vec(b"M5".to_vec()))
+    writer.write_all(&msg::size_vec(b"M5".to_vec()))
         .context("writing handshake")?;
 
     let mut transaction_holder = TransactionsHolder {
@@ -93,10 +94,10 @@ pub fn writer<W: std::io::Write>(
     
     for zeo in receiver.iter() {
         match zeo {
-            Zeo::Raw(bytes) => {
+            msg::Zeo::Raw(bytes) => {
                 writer.write_all(&bytes).context("writing raw")?
             },
-            Zeo::TpcBegin(txn, user, desc, ext) => {
+            msg::Zeo::TpcBegin(txn, user, desc, ext) => {
                 if ! transactions.contains_key(&txn) {
                     transactions.insert(
                         txn,
@@ -104,17 +105,17 @@ pub fn writer<W: std::io::Write>(
                              .context("writer begin")?);
                 }
             },
-            Zeo::Storea(oid, serial, data, txn) => {
+            msg::Zeo::Storea(oid, serial, data, txn) => {
                 if let Some(trans) = transactions.get_mut(&txn) {
                     trans.save(oid, serial, &data)
                         .context("writer save")?;
                 }
             },
-            Zeo::Vote(id, txn) => {
+            msg::Zeo::Vote(id, txn) => {
                 if let Some(trans) = transactions.get(&txn) {
                     let send = client.send.clone();
                     fs.lock(trans, Box::new(
-                        move | _ | send.send(Zeo::Locked(id, txn))
+                        move | _ | send.send(msg::Zeo::Locked(id, txn))
                             .or::<Result<()>>(Ok(()))
                             .unwrap()
                     ))?;
@@ -125,7 +126,7 @@ pub fn writer<W: std::io::Write>(
                             "Invalid transaction"));
                 };
             },
-            Zeo::Locked(id, txn) => {
+            msg::Zeo::Locked(id, txn) => {
                 if let Some(mut trans) = transactions.get_mut(&txn) {
                     trans.locked()?;
                     let conflicts = fs.stage(&mut trans)?;
@@ -135,18 +136,18 @@ pub fn writer<W: std::io::Write>(
                         .map(| c | {
                             let mut m: BTreeMap<String, serde::bytes::Bytes> =
                                 BTreeMap::new();
-                            m.insert("oid".to_string(), bytes(&c.oid)); 
-                            m.insert("serial".to_string(), bytes(&c.serial)); 
+                            m.insert("oid".to_string(), msg::bytes(&c.oid)); 
+                            m.insert("serial".to_string(), msg::bytes(&c.serial)); 
                             m.insert("committed".to_string(),
-                                     bytes(&c.committed)); 
-                            m.insert("data".to_string(), bytes(&c.data)); 
+                                     msg::bytes(&c.committed)); 
+                            m.insert("data".to_string(), msg::bytes(&c.data)); 
                             m
                         })
                         .collect();
                     respond!(writer, id, conflict_maps);
                 }
             },
-            Zeo::TpcFinish(id, txn) => {
+            msg::Zeo::TpcFinish(id, txn) => {
                 if let Some(trans) = transactions.remove(&txn) {
                     let mut client = client.clone();
                     client.request_id = id;
@@ -158,26 +159,26 @@ pub fn writer<W: std::io::Write>(
                             "Invalid transaction"));
                 }
             },
-            Zeo::Finished(id, tid, len, size) => {
-                respond!(writer, id, bytes(&tid));
+            msg::Zeo::Finished(id, tid, len, size) => {
+                respond!(writer, id, msg::bytes(&tid));
                 let mut info: BTreeMap<String, u64> = BTreeMap::new();
                 info.insert("length".to_string(), len);
                 info.insert("size".to_string(), size);
                 async_!(writer, "info", (info,));
             },
-            Zeo::Invalidate(tid, oids) => {
+            msg::Zeo::Invalidate(tid, oids) => {
                 let oids: Vec<serde::bytes::Bytes> =
-                    oids.iter().map(| oid | bytes(oid)).collect();
-                async_!(writer, "invalidateTransaction", (bytes(&tid), oids));
+                    oids.iter().map(| oid | msg::bytes(oid)).collect();
+                async_!(writer, "invalidateTransaction", (msg::bytes(&tid), oids));
             },
-            Zeo::TpcAbort(id, txn) => {
+            msg::Zeo::TpcAbort(id, txn) => {
                 if let Some(trans) = transactions.remove(&txn) {
                     fs.tpc_abort(&trans.id);
                 }
-                respond!(writer, id, NIL);
+                respond!(writer, id, msg::NIL);
 
             },
-            Zeo::End => break,
+            msg::Zeo::End => break,
             _ => {}
         }
     }

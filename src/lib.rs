@@ -13,12 +13,13 @@ extern crate time;
 pub mod util;
 
 #[macro_use]
-pub mod msg;
+pub mod msgmacros;
 
 pub mod errors;
 pub mod storage;
 mod index;
 mod lock;
+pub mod msg;
 mod pool;
 mod records;
 pub mod reader;

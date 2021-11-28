@@ -1,21 +1,23 @@
 // Read side of server.
 use std::sync::Arc;
 
+use anyhow::{anyhow, Context, Result};
+
 use crate::storage;
 use crate::writer;
-use crate::msg::*;
-use anyhow::{anyhow, Context, Result};
+use crate::msg;
+use crate::msgmacros::*;
 
 macro_rules! respond {
     ($sender: expr, $id: expr, $data: expr) => (
-        $sender.send(Zeo::Raw(response!($id, $data))).context("send response")?
+        $sender.send(msg::Zeo::Raw(response!($id, $data))).context("send response")?
     )
 }
 
 macro_rules! error {
     ($sender: expr, $id: expr, $data: expr) => (
         $sender
-            .send(Zeo::Raw(error_response!($id, $data)))
+            .send(msg::Zeo::Raw(error_response!($id, $data)))
             .context("send error response")?
     )
 }
@@ -23,10 +25,10 @@ macro_rules! error {
 pub fn reader<R: std::io::Read>(
     fs: Arc<storage::FileStorage<writer::Client>>,
     reader: R,
-    sender: std::sync::mpsc::Sender<Zeo>)
+    sender: std::sync::mpsc::Sender<msg::Zeo>)
     -> Result<()> {
 
-    let mut it = ZeoIter::new(reader);
+    let mut it = msg::ZeoIter::new(reader);
 
     // handshake
     if it.next_vec()? != b"M5".to_vec() {
@@ -36,16 +38,16 @@ pub fn reader<R: std::io::Read>(
     // register(storage_id, read_only)
     loop {
         match it.next()? {
-            Zeo::Register(id, storage, read_only) => {
+            msg::Zeo::Register(id, storage, read_only) => {
                 if &storage != "1" {
                     error!(sender, id,
                            ("builtins.ValueError", ("Invalid storage",)))
                 }
-                respond!(sender, id, bytes(&fs.last_transaction()));
+                respond!(sender, id, msg::bytes(&fs.last_transaction()));
                 break;          // onward
             },
-            Zeo::End => {
-                sender.send(Zeo::End);
+            msg::Zeo::End => {
+                sender.send(msg::Zeo::End);
                 return Ok(())
             },
             _ => return Err(anyhow!("bad method"))?
@@ -56,46 +58,49 @@ pub fn reader<R: std::io::Read>(
     loop {
         let message = it.next()?;
         match message {
-            Zeo::LoadBefore(id, oid, before) => {
+            msg::Zeo::LoadBefore(id, oid, before) => {
                 use storage::LoadBeforeResult::*;
                 match fs.load_before(&oid, &before)? {
                     Loaded(data, tid, Some(end)) => {
-                        respond!(sender, id,
-                                 (bytes(&data), bytes(&tid), bytes(&end)));
+                        respond!(
+                            sender, id,
+                            (msg::bytes(&data), msg::bytes(&tid), msg::bytes(&end)));
                     },
                     Loaded(data, tid, None) => {
-                        respond!(sender, id, (bytes(&data), bytes(&tid), NIL));
+                        respond!(
+                            sender, id,
+                            (msg::bytes(&data), msg::bytes(&tid), msg::NIL));
                     },
                     NoneBefore => {
-                        respond!(sender, id, NIL);
+                        respond!(sender, id, msg::NIL);
                     },
                     PosKeyError => {
                         error!(sender, id,
                                ("ZODB.POSException.POSKeyError",
-                                (bytes(&oid),)));
+                                (msg::bytes(&oid),)));
                     },
                 }
             },
-            Zeo::Ping(id) => {
-                respond!(sender, id, NIL);
+            msg::Zeo::Ping(id) => {
+                respond!(sender, id, msg::NIL);
             },
-            Zeo::NewOids(id) => {
+            msg::Zeo::NewOids(id) => {
                 let oids = fs.new_oids();
                 let oids: Vec<serde::bytes::Bytes> =
-                    oids.iter().map(| oid | bytes(oid)).collect();
+                    oids.iter().map(| oid | msg::bytes(oid)).collect();
                 respond!(sender, id, oids)
             },
-            Zeo::GetInfo(id) => { // TODO, don't punt :)
+            msg::Zeo::GetInfo(id) => { // TODO, don't punt :)
                 respond!(sender, id, std::collections::BTreeMap::<String, i64>::new())
             },
-            Zeo::TpcBegin(_, _, _, _) | Zeo::Storea(_, _, _, _) |
-            Zeo::Vote(_, _) | Zeo::TpcFinish(_, _) |  Zeo::TpcAbort(_, _)
+            msg::Zeo::TpcBegin(_, _, _, _) | msg::Zeo::Storea(_, _, _, _) |
+            msg::Zeo::Vote(_, _) | msg::Zeo::TpcFinish(_, _) |  msg::Zeo::TpcAbort(_, _)
                 =>
                 sender
                 .send(message)
                 .context("send error")?, // Forward these
-            Zeo::End => {
-                sender.send(Zeo::End);
+            msg::Zeo::End => {
+                sender.send(msg::Zeo::End);
                 return Ok(())
             },
             _ => return Err(anyhow!("bad method"))

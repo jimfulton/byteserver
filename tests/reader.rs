@@ -10,7 +10,8 @@ use anyhow::Context;
 use byteorder::{ByteOrder, BigEndian};
 use serde::bytes::ByteBuf;
 
-use byteserver::msg::*;
+use byteserver::msg;
+use byteserver::msgmacros::*;
 use byteserver::util;
 use byteserver::reader;
 use byteserver::writer;
@@ -45,12 +46,12 @@ fn basic() {
     );
 
     // handshake
-    writer.write_all(&size_vec(b"M5".to_vec())).unwrap();
+    writer.write_all(&msg::size_vec(b"M5".to_vec())).unwrap();
     // register
     writer.write_all(&sencode!((1, "register", ("1", true))).unwrap()).unwrap();
     // This generates a response directly
     match rx.recv().unwrap() {
-        Zeo::Raw(r) => {
+        msg::Zeo::Raw(r) => {
             let r = unsize(r);
             let (id, code, tid): (u64, String, ByteBuf) =
                 decode!(&mut (&r as &[u8]),
@@ -62,7 +63,7 @@ fn basic() {
     // get_info(), mostly punt for now:
     writer.write_all(&sencode!((2, "get_info", ())).unwrap()).unwrap();
     match rx.recv().unwrap() {
-        Zeo::Raw(r) => {
+        msg::Zeo::Raw(r) => {
             let r = unsize(r);
             let (id, code, info): (u64, String, BTreeMap<String, u64>) =
                 decode!(&mut (&r as &[u8]),
@@ -77,7 +78,7 @@ fn basic() {
     writer.write_all(
         &sencode!((3, "loadBefore", (util::Z64, now))).unwrap()).unwrap();
     let tid1 = match rx.recv().unwrap() {
-        Zeo::Raw(r) => {
+        msg::Zeo::Raw(r) => {
             let r = unsize(r);
             let (id, code, (data, tid, end)): (
                 u64, String, (ByteBuf, ByteBuf, Option<ByteBuf>)) =
@@ -93,7 +94,7 @@ fn basic() {
     writer.write_all(
         &sencode!((3, "loadBefore", (util::Z64, tid1))).unwrap()).unwrap();
     let tid0 = match rx.recv().unwrap() {
-        Zeo::Raw(r) => {
+        msg::Zeo::Raw(r) => {
             let r = unsize(r);
             let (id, code, (data, tid, end)): (
                 u64, String, (ByteBuf, ByteBuf, Option<ByteBuf>)) =
@@ -109,7 +110,7 @@ fn basic() {
     writer.write_all(
         &sencode!((3, "loadBefore", (util::Z64, tid0))).unwrap()).unwrap();
     match rx.recv().unwrap() {
-        Zeo::Raw(r) => {
+        msg::Zeo::Raw(r) => {
             let r = unsize(r);
             let (id, code, n): (u64, String, Option<u32>) =
                 decode!(&mut (&r as &[u8]),
@@ -122,7 +123,7 @@ fn basic() {
     writer.write_all(
         &sencode!((3, "loadBefore", (util::p64(9), tid0))).unwrap()).unwrap();
     match rx.recv().unwrap() {
-        Zeo::Raw(r) => {
+        msg::Zeo::Raw(r) => {
             let r = unsize(r);
             let (id, code, (ename, (oid,))): (
                 u64, String, (String, (ByteBuf,))) =
@@ -137,7 +138,7 @@ fn basic() {
     // Ping
     writer.write_all(&sencode!((4, "ping", ())).unwrap()).unwrap();
     match rx.recv().unwrap() {
-        Zeo::Raw(r) => {
+        msg::Zeo::Raw(r) => {
             let r = unsize(r);
             let (id, code, r): (u64, String, Option<u32>) =
                 decode!(&mut (&r as &[u8]),
@@ -150,7 +151,7 @@ fn basic() {
     // new_oids:
     writer.write_all(&sencode!((4, "new_oids", ())).unwrap()).unwrap();
     match rx.recv().unwrap() {
-        Zeo::Raw(r) => {
+        msg::Zeo::Raw(r) => {
             let r = unsize(r);
             let (id, code, oids): (u64, String, Vec<ByteBuf>) =
                 decode!(&mut (&r as &[u8]),
@@ -167,10 +168,10 @@ fn basic() {
     
     // Requests that deal with transactions are merely forwarded:
     writer.write_all(
-        &sencode!((0, "tpc_begin", (42, b"u", b"d", b"e", NIL, b" ")))
+        &sencode!((0, "tpc_begin", (42, b"u", b"d", b"e", msg::NIL, b" ")))
             .unwrap()).unwrap();
     match rx.recv().unwrap() {
-        Zeo::TpcBegin(42, user, desc, ext) => {
+        msg::Zeo::TpcBegin(42, user, desc, ext) => {
             assert_eq!((user, desc, ext),
                        (b"u".to_vec(), b"d".to_vec(), b"e".to_vec()));
         }, _ => panic!("invalid message")
@@ -179,7 +180,7 @@ fn basic() {
         &sencode!((0, "storea", (util::Z64, fs.last_transaction(), b"111", 42)))
                   .unwrap()).unwrap();
     match rx.recv().unwrap() {
-        Zeo::Storea(oid, serial, data, 42) => {
+        msg::Zeo::Storea(oid, serial, data, 42) => {
             assert_eq!((oid, serial, data),
                        (util::Z64, fs.last_transaction(), b"111".to_vec()));
         }, _ => panic!("invalid message")
@@ -187,19 +188,19 @@ fn basic() {
     writer.write_all(
         &sencode!((4, "vote", (42,))).unwrap()).unwrap();
     match rx.recv().unwrap() {
-        Zeo::Vote(4, 42) => {
+        msg::Zeo::Vote(4, 42) => {
         }, _ => panic!("invalid message")
     }
     writer.write_all(
         &sencode!((5, "tpc_finish", (42,))).unwrap()).unwrap();
     match rx.recv().unwrap() {
-        Zeo::TpcFinish(5, 42) => {
+        msg::Zeo::TpcFinish(5, 42) => {
         }, _ => panic!("invalid message")
     }
     writer.write_all(
         &sencode!((5, "tpc_abort", (42,))).unwrap()).unwrap();
     match rx.recv().unwrap() {
-        Zeo::TpcAbort(5, 42) => {
+        msg::Zeo::TpcAbort(5, 42) => {
         }, _ => panic!("invalid message")
     }
 }
