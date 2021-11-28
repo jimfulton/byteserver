@@ -1,5 +1,3 @@
-use std::collections::{BTreeMap, HashMap};
-
 use anyhow::{Context, Result};
 
 use crate::storage;
@@ -64,7 +62,7 @@ impl crate::storage::Client for Client {
 
 struct TransactionsHolder<'store> {
     fs: std::sync::Arc<storage::FileStorage<Client>>,
-    transactions: HashMap<u64, transaction::Transaction<'store>>,
+    transactions: std::collections::HashMap<u64, transaction::Transaction<'store>>,
 }
 
 impl<'store> Drop for TransactionsHolder<'store> {
@@ -87,7 +85,7 @@ pub fn writer<W: std::io::Write>(
 
     let mut transaction_holder = TransactionsHolder {
         fs: fs.clone(),
-        transactions: HashMap::new(),
+        transactions: std::collections::HashMap::new(),
     };
 
     let transactions = &mut transaction_holder.transactions;
@@ -131,11 +129,14 @@ pub fn writer<W: std::io::Write>(
                     trans.locked()?;
                     let conflicts = fs.stage(&mut trans)?;
                     let conflict_maps:
-                    Vec<BTreeMap<String, serde::bytes::Bytes>> =
+                    Vec<std::collections::BTreeMap<String, serde::bytes::Bytes>> =
                         conflicts.iter()
                         .map(| c | {
-                            let mut m: BTreeMap<String, serde::bytes::Bytes> =
-                                BTreeMap::new();
+                            let mut m: std::collections::BTreeMap<
+                                    String,
+                                    serde::bytes::Bytes,
+                                    > =
+                                std::collections::BTreeMap::new();
                             m.insert("oid".to_string(), msg::bytes(&c.oid)); 
                             m.insert("serial".to_string(), msg::bytes(&c.serial)); 
                             m.insert("committed".to_string(),
@@ -161,7 +162,8 @@ pub fn writer<W: std::io::Write>(
             },
             msg::Zeo::Finished(id, tid, len, size) => {
                 respond!(writer, id, msg::bytes(&tid));
-                let mut info: BTreeMap<String, u64> = BTreeMap::new();
+                let mut info: std::collections::BTreeMap<String, u64> =
+                    std::collections::BTreeMap::new();
                 info.insert("length".to_string(), len);
                 info.insert("size".to_string(), size);
                 async_!(writer, "info", (info,));

@@ -1,7 +1,5 @@
 /// filestorage2
 
-use std::fs::OpenOptions;
-use std::collections::VecDeque;
 use std::io::prelude::*;
 
 use anyhow::{Context, Result};
@@ -37,7 +35,7 @@ pub struct Conflict {
 
 pub struct FileStorage<C: Client> {
     path: String,
-    voted: std::sync::Mutex<VecDeque<Voted<C>>>,
+    voted: std::sync::Mutex<std::collections::VecDeque<Voted<C>>>,
     file: std::sync::Mutex<std::fs::File>,
     index: std::sync::Mutex<index::Index>,
     readers: pool::FilePool<pool::ReadFileFactory>,
@@ -83,7 +81,7 @@ impl<C: Client> FileStorage<C> {
             committed_tid: std::sync::Mutex::new(last_tid),
             last_tid: std::sync::Mutex::new(last_tid),
             locker: std::sync::Mutex::new(lock::LockManager::new()),
-            voted: std::sync::Mutex::new(VecDeque::new()),
+            voted: std::sync::Mutex::new(std::collections::VecDeque::new()),
             clients: std::sync::Mutex::new(Vec::new()),
             last_oid: std::sync::Mutex::new(last_oid),
         })
@@ -91,7 +89,7 @@ impl<C: Client> FileStorage<C> {
 
     pub fn open(path: String) -> std::io::Result<FileStorage<C>> {
         let mut file =
-            OpenOptions::new()
+            std::fs::OpenOptions::new()
             .read(true).write(true).create(true)
             .open(&path)?;
         let size = file.metadata()?.len();
@@ -335,7 +333,7 @@ impl<C: Client> FileStorage<C> {
 
     fn handle_finished_at_voted_head(
         &self,
-        mut voted: std::sync::MutexGuard<VecDeque<Voted<C>>>) {
+        mut voted: std::sync::MutexGuard<std::collections::VecDeque<Voted<C>>>) {
 
         while voted.len() > 0 {
             {

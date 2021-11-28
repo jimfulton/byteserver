@@ -1,5 +1,4 @@
 use byteorder::{ByteOrder, BigEndian};
-use time;
 
 const SCONV: f64 = 60.0 / (1u64 <<32) as f64;
 

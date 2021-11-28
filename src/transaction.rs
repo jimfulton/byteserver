@@ -4,7 +4,7 @@ use anyhow::{anyhow, Context, Result};
 use byteorder::{ByteOrder, BigEndian, ReadBytesExt, WriteBytesExt};
 
 use crate::util;
-use crate::index::Index;
+use crate::index;
 use crate::pool;
 use crate::records;
 
@@ -51,7 +51,7 @@ pub enum TransactionState<'store> {
 pub struct Transaction<'store> {
     pub id: util::Tid,
     pub state: TransactionState<'store>,
-    index: Index,
+    index: index::Index,
 }
 
 impl<'store, 't> Transaction<'store> {
@@ -75,7 +75,7 @@ impl<'store, 't> Transaction<'store> {
         let length = 4u64 + records::TRANSACTION_HEADER_LENGTH +
             user.len() as u64 + desc.len() as u64 + ext.len() as u64;
         Ok(Transaction {
-            id: id, index: Index::new(),
+            id: id, index: index::Index::new(),
             state: TransactionState::Saving(TransactionData {
                 filep: filep, writer: writer,
                 length: length, header_length: length,
@@ -267,7 +267,7 @@ impl<'store, 't> Transaction<'store> {
     }
 
     pub fn stage(&mut self, tid: util::Tid, mut out: &mut std::fs::File)
-                 -> std::io::Result<(Index, u64)> {
+                 -> std::io::Result<(index::Index, u64)> {
         let length =
             if let TransactionState::Voting(ref mut data) = self.state {
                 // Update tids in temp file
@@ -287,7 +287,7 @@ impl<'store, 't> Transaction<'store> {
         };
         self.state = TransactionState::Voted;
 
-        let mut index = Index::new();
+        let mut index = index::Index::new();
         std::mem::swap(&mut index, &mut self.index);
 
         Ok((index, length))
@@ -304,7 +304,7 @@ type TransactionSerialIteratorItem = std::io::Result<(util::Oid, util::Tid)>;
 
 pub struct TransactionSerialIterator<'t> {
     reader: std::io::BufReader<std::fs::File>,
-    index: &'t Index,
+    index: &'t index::Index,
     length: u64,
     pos: u64,
 }
@@ -312,7 +312,7 @@ pub struct TransactionSerialIterator<'t> {
 impl<'t> TransactionSerialIterator<'t> {
 
     fn new(mut file: std::fs::File,
-           index: &'t Index,
+           index: &'t index::Index,
            length: u64,
            pos: u64) -> std::io::Result<TransactionSerialIterator> {
         file.seek(std::io::SeekFrom::Start(pos))?;

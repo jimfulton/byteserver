@@ -1,13 +1,6 @@
-use std::fs::{File, create_dir};
-use std::io;
-use std::marker;
-use std::ops::Deref;
-use std::path::Path;
-use std::sync::Mutex;
-use tempfile;
 
 pub trait FileFactory {
-    fn new(&self) -> io::Result<File>;
+    fn new(&self) -> std::io::Result<std::fs::File>;
 }
 
 #[derive(Debug)]
@@ -16,8 +9,8 @@ pub struct ReadFileFactory {
 }
 
 impl FileFactory for ReadFileFactory {
-    fn new(&self) -> io::Result<File> {
-        File::open(&self.path)
+    fn new(&self) -> std::io::Result<std::fs::File> {
+        std::fs::File::open(&self.path)
     }
 }
 
@@ -27,10 +20,10 @@ pub struct TmpFileFactory {
 }
 
 impl TmpFileFactory {
-    pub fn base(base: String) -> io::Result<TmpFileFactory> {
+    pub fn base(base: String) -> std::io::Result<TmpFileFactory> {
         {
-            if ! Path::new(&base).exists() {
-                create_dir(&base)?;
+            if ! std::path::Path::new(&base).exists() {
+                std::fs::create_dir(&base)?;
             }
         }
         Ok(TmpFileFactory { base: base })
@@ -38,7 +31,7 @@ impl TmpFileFactory {
 }
 
 impl FileFactory for TmpFileFactory {
-    fn new(&self) -> io::Result<File> {
+    fn new(&self) -> std::io::Result<std::fs::File> {
         tempfile::tempfile_in(&self.base)
     }
 }
@@ -48,17 +41,17 @@ pub type TmpFilePointer<'store> = PooledFilePointer<'store, TmpFileFactory>;
 #[derive(Debug)]
 pub struct FilePool<F: FileFactory> {
     capacity: usize, // Doesn't change
-    files: Mutex<Vec<File>>,
+    files: std::sync::Mutex<Vec<std::fs::File>>,
     factory: F, // Doesn't change
 }
 
 impl<F: FileFactory> FilePool<F> {
     pub fn new(factory: F, capacity: usize) -> FilePool<F> {
         FilePool { capacity: capacity, factory: factory,
-                   files: Mutex::new(vec![]) }
+                   files: std::sync::Mutex::new(vec![]) }
     }
 
-    pub fn get<'pool>(&'pool self) -> io::Result<PooledFilePointer<'pool, F>> {
+    pub fn get<'pool>(&'pool self) -> std::io::Result<PooledFilePointer<'pool, F>> {
         let mut files = self.files.lock().unwrap();
         let file = match files.pop() {
             Some(filerc) => filerc,
@@ -67,7 +60,7 @@ impl<F: FileFactory> FilePool<F> {
         Ok(PooledFilePointer {file: file, pool: self})
     }
 
-    pub fn put(&self, filerc: File) {
+    pub fn put(&self, filerc: std::fs::File) {
         let mut files = self.files.lock().unwrap();
         if files.len() < self.capacity {
             files.push(filerc);
@@ -79,19 +72,19 @@ impl<F: FileFactory> FilePool<F> {
     }
 }
 
-unsafe impl<F: FileFactory> marker::Sync for FilePool<F> {}
-unsafe impl<F: FileFactory> marker::Send for FilePool<F> {}
+unsafe impl<F: FileFactory> std::marker::Sync for FilePool<F> {}
+unsafe impl<F: FileFactory> std::marker::Send for FilePool<F> {}
 
 #[derive(Debug)]
 pub struct PooledFilePointer<'pool, F: FileFactory + 'pool> {
-    file: File,
+    file: std::fs::File,
     pool: &'pool FilePool<F>,
 }
 
-impl<'pool, F: FileFactory + 'pool> Deref for PooledFilePointer<'pool, F> {
-    type Target = File;
+impl<'pool, F: FileFactory + 'pool> std::ops::Deref for PooledFilePointer<'pool, F> {
+    type Target = std::fs::File;
 
-    fn deref<'fptr>(&'fptr self) -> &'fptr File {
+    fn deref<'fptr>(&'fptr self) -> &'fptr std::fs::File {
         &self.file
     }
 }
@@ -108,8 +101,6 @@ impl<'pool, F: FileFactory + 'pool> Drop for PooledFilePointer<'pool, F> {
 mod tests {
 
     use super::*;
-    use std::fs::File;
-    use std::io;
     use std::io::prelude::*;
     use std::sync;
     use std::thread;
@@ -122,7 +113,7 @@ mod tests {
         let sample = b"data";
         let path = String::from(
             tmp_dir.path().join("data").to_str().unwrap());
-        { File::create(&path).unwrap().write_all(sample).unwrap(); }
+        { std::fs::File::create(&path).unwrap().write_all(sample).unwrap(); }
         
         let pool = sync::Arc::new(
             FilePool::new(ReadFileFactory { path: path }, 2));
@@ -137,7 +128,7 @@ mod tests {
                 let p = tpool.get().unwrap();
                 let mut file = p.try_clone().unwrap();
                 let mut buf = [0u8; 4];
-                file.seek(io::SeekFrom::Start(0)).unwrap();
+                file.seek(std::io::SeekFrom::Start(0)).unwrap();
                 file.read_exact(&mut buf).unwrap();
                 tt.send(buf);
             });

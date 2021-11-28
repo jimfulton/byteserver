@@ -1,6 +1,3 @@
-use std::collections::vec_deque::VecDeque;
-use std::collections::{HashMap, HashSet};
-use std::ops::Fn;
 
 use crate::util;
 
@@ -8,26 +5,34 @@ pub struct Locking {
     id: util::Tid,
     want: Vec<util::Oid>,
     got: Vec<util::Oid>,
-    locked: Box<dyn Fn(util::Tid)>,
+    locked: Box<dyn std::ops::Fn(util::Tid)>,
 }
     
 pub struct LockManager {
-    locks: HashSet<util::Oid>,
-    waiting: HashMap<util::Oid, VecDeque<util::Tid>>,
-    locking: HashMap<util::Tid, Locking>,
+    locks: std::collections::HashSet<util::Oid>,
+    waiting: std::collections::HashMap<util::Oid,
+                                       std::collections::vec_deque::VecDeque<
+                                               util::Tid
+                                               >
+                                       >,
+    locking: std::collections::HashMap<util::Tid, Locking>,
 }
 
 impl LockManager {
 
     pub fn new() -> LockManager {
         LockManager {
-            locks: HashSet::new(),
-            waiting: HashMap::new(),
-            locking: HashMap::new(),
+            locks: std::collections::HashSet::new(),
+            waiting: std::collections::HashMap::new(),
+            locking: std::collections::HashMap::new(),
         }
     }
 
-    pub fn lock(&mut self, id: util::Tid, want: Vec<util::Oid>, locked: Box<dyn Fn(util::Tid)>) {
+    pub fn lock(&mut self,
+                id: util::Tid,
+                want: Vec<util::Oid>,
+                locked: Box<dyn std::ops::Fn(util::Tid)>,
+    ) {
         self.lock_waiting(
             Locking { id: id, want: want, got: vec![], locked: locked });
     }
@@ -44,7 +49,9 @@ impl LockManager {
                         self.waiting.get_mut(&oid).unwrap().push_back(id);
                     }
                     else {
-                        let mut waiting: VecDeque<util::Tid> = VecDeque::new();
+                        let mut waiting:
+                            std::collections::vec_deque::VecDeque<util::Tid> =
+                                std::collections::vec_deque::VecDeque::new();
                         waiting.push_back(id);
                         self.waiting.insert(oid, waiting);
                     }

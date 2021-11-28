@@ -1,5 +1,4 @@
 // Read side of server.
-use std::sync::Arc;
 
 use anyhow::{anyhow, Context, Result};
 
@@ -23,7 +22,7 @@ macro_rules! error {
 }
 
 pub fn reader<R: std::io::Read>(
-    fs: Arc<storage::FileStorage<writer::Client>>,
+    fs: std::sync::Arc<storage::FileStorage<writer::Client>>,
     reader: R,
     sender: std::sync::mpsc::Sender<msg::Zeo>)
     -> Result<()> {
