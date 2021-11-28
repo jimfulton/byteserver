@@ -1,12 +1,7 @@
 // Test the writer half of the server
 
-
-extern crate byteorder;
-extern crate serde;
-
 #[macro_use]
 extern crate byteserver;
-extern crate pipe;
 
 use std::collections::BTreeMap;
 
@@ -14,7 +9,7 @@ use anyhow::Context;
 use serde::bytes::ByteBuf;
 
 use byteserver::msg::*;
-use byteserver::util::*;
+use byteserver::util;
 use byteserver::writer;
 use byteserver::storage;
 
@@ -27,8 +22,8 @@ fn basic() {
     let path = byteserver::util::test::test_path(&tdir, "data.fs");
 
     storage::testing::make_sample(
-        &path, vec![vec![(Z64, b"000")], vec![(Z64, b"111")]]).unwrap();
-    let fs = Arc::new(
+        &path, vec![vec![(util::Z64, b"000")], vec![(util::Z64, b"111")]]).unwrap();
+    let fs = std::sync::Arc::new(
         storage::FileStorage::<writer::Client>::open(path).unwrap());
 
     let client = writer::Client::new("test".to_string(), tx.clone());
@@ -46,7 +41,7 @@ fn basic() {
     // Lets write some data:
     tx.send(Zeo::TpcBegin(42, b"u".to_vec(), b"d".to_vec(), b"{}".to_vec()))
         .unwrap();
-    tx.send(Zeo::Storea(p64(1), Z64, b"ooo".to_vec(), 42)).unwrap();
+    tx.send(Zeo::Storea(util::p64(1), util::Z64, b"ooo".to_vec(), 42)).unwrap();
     tx.send(Zeo::Vote(11, 42)).unwrap();
 
     // We get back any conflicts:
@@ -77,7 +72,7 @@ fn basic() {
     });
     
     if let storage::LoadBeforeResult::Loaded(data, ltid, end) =
-        fs.load_before(&p64(1), storage::testing::MAXTID).unwrap() {
+        fs.load_before(&util::p64(1), storage::testing::MAXTID).unwrap() {
             assert_eq!(&ltid, &*tid);
             assert_eq!(&data, b"ooo");
             assert!(end.is_none());
@@ -87,7 +82,7 @@ fn basic() {
     // If data are updated not by the client, we'll be notified:
     let (tx2, _) = std::sync::mpsc::channel();
     let client2 = writer::Client::new("test2".to_string(), tx2.clone());
-    storage::testing::add_data(&fs, &client2, vec![vec![(p64(3), b"ttt")]])
+    storage::testing::add_data(&fs, &client2, vec![vec![(util::p64(3), b"ttt")]])
         .context("adding data").unwrap();
     let (msgid, method, (itid, oids)): (i64, String, (ByteBuf, Vec<ByteBuf>)) = 
         decode!(&mut (&reader.next_vec().unwrap() as &[u8]),
@@ -95,5 +90,5 @@ fn basic() {
     assert_eq!((msgid, &method as &str), (0, "invalidateTransaction"));
     assert_eq!(itid.len(), 8);
     assert!(itid > tid);
-    assert_eq!(oids, vec![ByteBuf::from(p64(3).to_vec())]);
+    assert_eq!(oids, vec![ByteBuf::from(util::p64(3).to_vec())]);
 }
