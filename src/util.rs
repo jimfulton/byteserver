@@ -106,13 +106,13 @@ pub fn seek(s: &mut dyn std::io::Seek, pos: u64) -> std::io::Result<u64> {
 
 pub mod test {
 
-    use tempdir;
-    
-    pub fn dir() -> tempdir::TempDir {
-        tempdir::TempDir::new("test").unwrap()
+    use tempfile;
+
+    pub fn dir() -> tempfile::TempDir {
+        tempfile::TempDir::new().unwrap()
     }
 
-    pub fn test_path(dir: &tempdir::TempDir, name: &str) -> String {
+    pub fn test_path(dir: &tempfile::TempDir, name: &str) -> String {
         String::from(dir.path().join(name).to_str().unwrap())
     }
 }

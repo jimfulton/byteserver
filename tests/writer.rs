@@ -6,7 +6,7 @@ extern crate byteserver;
 use std::collections::BTreeMap;
 
 use anyhow::Context;
-use serde::bytes::ByteBuf;
+use serde_bytes::ByteBuf;
 
 use byteserver::msg;
 use byteserver::msgmacros::*;
@@ -74,7 +74,7 @@ fn basic() {
     
     if let storage::LoadBeforeResult::Loaded(data, ltid, end) =
         fs.load_before(&util::p64(1), storage::testing::MAXTID).unwrap() {
-            assert_eq!(&ltid, &*tid);
+            assert_eq!(&ltid[..], &tid[..]);
             assert_eq!(&data, b"ooo");
             assert!(end.is_none());
         }

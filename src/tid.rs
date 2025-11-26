@@ -17,20 +17,24 @@ pub fn make_tid(year: u32, month: u32, day: u32, hour: u32, minute: u32,
     tid
 }
 
-pub fn tm_tid(tm: time::Tm) -> Tid {
-    let days = (tm.tm_year * 12 + tm.tm_mon) * 31 + tm.tm_mday - 1;
-    let minutes = ((days * 24 + tm.tm_hour) * 60 + tm.tm_min) as u64;
-    let seconds = ((
-        (tm.tm_sec - tm.tm_utcoff) as f64 +
-            (tm.tm_nsec as f64 / 1_000_000_000.0)
-    )/ SCONV) as u64;
+pub fn tm_tid(dt: time::OffsetDateTime) -> Tid {
+    let year = dt.year() as i32;
+    let month = dt.month() as i32;
+    let day = dt.day() as i32;
+    let hour = dt.hour() as i32;
+    let minute = dt.minute() as i32;
+    let second = dt.second() as f64 + (dt.nanosecond() as f64 / 1_000_000_000.0);
+
+    let days = ((year - 1900) * 12 + month - 1) * 31 + day - 1;
+    let minutes = ((days * 24 + hour) * 60 + minute) as u64;
+    let seconds = (second / SCONV) as u64;
 
     let mut tid: Tid = [0u8; 8];
     BigEndian::write_u64(&mut tid, (minutes << 32) + seconds);
     tid
 }
 
-pub fn now_tid() -> Tid { tm_tid(time::now_utc()) }
+pub fn now_tid() -> Tid { tm_tid(time::OffsetDateTime::now_utc()) }
 
 pub fn next(tid: &Tid) -> Tid {
     let mut next = tid.clone();
@@ -66,13 +70,9 @@ mod tests {
 
     #[test]
     fn test_tm_tid() {
+        use time::macros::datetime;
         assert_eq!(
-            tm_tid(time::Tm {
-                tm_year: 116, tm_mon: 0, tm_mday: 2,
-                tm_hour: 3, tm_min: 4, tm_sec: 59,
-                tm_nsec: 999_999_999,
-                tm_wday: 0, tm_yday: 0, tm_isdst: 0, tm_utcoff: 0,
-            }),
+            tm_tid(datetime!(2016-01-02 03:04:59.999_999_999 UTC)),
             [3, 180, 48, 88, 255, 255, 255, 255]);
         assert_eq!(make_tid(2016, 1, 2, 3, 4, 56.789),
                    [3, 180, 48, 88, 242, 76, 187, 82]);

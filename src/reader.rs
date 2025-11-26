@@ -85,7 +85,7 @@ pub fn reader<R: std::io::Read>(
             },
             msg::Zeo::NewOids(id) => {
                 let oids = fs.new_oids();
-                let oids: Vec<serde::bytes::Bytes> =
+                let oids: Vec<&[u8]> =
                     oids.iter().map(| oid | msg::bytes(oid)).collect();
                 respond!(sender, id, oids)
             },

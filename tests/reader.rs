@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 
 use anyhow::Context;
 use byteorder::{ByteOrder, BigEndian};
-use serde::bytes::ByteBuf;
+use serde_bytes::ByteBuf;
 
 use byteserver::msg;
 use byteserver::msgmacros::*;
@@ -57,7 +57,7 @@ fn basic() {
                 decode!(&mut (&r as &[u8]),
                         "decoding register response").unwrap();
             assert_eq!(id, 1); assert_eq!(&code, "R");
-            assert_eq!(util::read8(&mut (&*tid)).unwrap(), fs.last_transaction());
+            assert_eq!(util::read8(&mut tid.as_slice()).unwrap(), fs.last_transaction());
         }, _ => panic!("invalid message")
     }
     // get_info(), mostly punt for now:
@@ -87,7 +87,7 @@ fn basic() {
             assert_eq!(id, 3); assert_eq!(&code, "R");
             assert_eq!(&*data, b"111");
             assert!(end.is_none());
-            util::read8(&mut &*tid).unwrap()
+            util::read8(&mut tid.as_slice()).unwrap()
         }, _ => panic!("invalid message")
     };
     // previous
@@ -102,8 +102,9 @@ fn basic() {
                         "decoding loadBefore response").unwrap();
             assert_eq!(id, 3); assert_eq!(&code, "R");
             assert_eq!(&*data, b"000");
-            assert_eq!(util::read8(&mut &*end.unwrap()).unwrap(), tid1);
-            util::read8(&mut &*tid).unwrap()
+            let end_buf = end.unwrap();
+            assert_eq!(util::read8(&mut end_buf.as_slice()).unwrap(), tid1);
+            util::read8(&mut tid.as_slice()).unwrap()
         }, _ => panic!("invalid message")
     };
     // pre creation

@@ -129,12 +129,12 @@ pub fn writer<W: std::io::Write>(
                     trans.locked()?;
                     let conflicts = fs.stage(&mut trans)?;
                     let conflict_maps:
-                    Vec<std::collections::BTreeMap<String, serde::bytes::Bytes>> =
+                    Vec<std::collections::BTreeMap<String, &[u8]>> =
                         conflicts.iter()
                         .map(| c | {
                             let mut m: std::collections::BTreeMap<
                                     String,
-                                    serde::bytes::Bytes,
+                                    &[u8],
                                     > =
                                 std::collections::BTreeMap::new();
                             m.insert("oid".to_string(), msg::bytes(&c.oid)); 
@@ -169,7 +169,7 @@ pub fn writer<W: std::io::Write>(
                 async_!(writer, "info", (info,));
             },
             msg::Zeo::Invalidate(tid, oids) => {
-                let oids: Vec<serde::bytes::Bytes> =
+                let oids: Vec<&[u8]> =
                     oids.iter().map(| oid | msg::bytes(oid)).collect();
                 async_!(writer, "invalidateTransaction", (msg::bytes(&tid), oids));
             },
