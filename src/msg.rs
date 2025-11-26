@@ -19,7 +19,7 @@ pub fn size_vec(mut v: Vec<u8>) -> Vec<u8> {
 
 pub const NIL: Option<u32> = None;
 
-pub fn bytes(data: &[u8]) -> serde::bytes::Bytes {
+pub fn bytes(data: &[u8]) -> serde::bytes::Bytes<'_> {
     serde::bytes::Bytes::new(data)
 }
 
