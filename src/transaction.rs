@@ -314,7 +314,7 @@ impl<'t> TransactionSerialIterator<'t> {
     fn new(mut file: std::fs::File,
            index: &'t index::Index,
            length: u64,
-           pos: u64) -> std::io::Result<TransactionSerialIterator> {
+           pos: u64) -> std::io::Result<TransactionSerialIterator<'t>> {
         file.seek(std::io::SeekFrom::Start(pos))?;
         Ok(TransactionSerialIterator {
             reader: std::io::BufReader::new(file),

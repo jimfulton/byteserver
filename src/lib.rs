@@ -5,7 +5,6 @@ extern crate byteorder;
 pub extern crate rmp;
 pub extern crate rmp_serde;
 extern crate serde;
-extern crate tempdir;
 extern crate tempfile;
 extern crate time;
 

@@ -233,7 +233,7 @@ impl<C: Client> FileStorage<C> {
     }
 
     pub fn tpc_begin(&self, user: &[u8], desc: &[u8], ext: &[u8])
-                 -> std::io::Result<transaction::Transaction> {
+                 -> std::io::Result<transaction::Transaction<'_>> {
         Ok(transaction::Transaction::begin(
                 self.tmps.get()?,
                 self.new_tid(), user, desc, ext)?)

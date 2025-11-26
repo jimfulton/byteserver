@@ -1,7 +1,7 @@
 
 use byteorder::{BigEndian, ByteOrder};
 
-use serde::bytes::ByteBuf;
+use serde_bytes::ByteBuf;
 
 use anyhow::{anyhow, Context, Result};
 
@@ -19,8 +19,8 @@ pub fn size_vec(mut v: Vec<u8>) -> Vec<u8> {
 
 pub const NIL: Option<u32> = None;
 
-pub fn bytes(data: &[u8]) -> serde::bytes::Bytes {
-    serde::bytes::Bytes::new(data)
+pub fn bytes(data: &[u8]) -> &[u8] {
+    data
 }
 
 #[derive(Debug, PartialEq)]
@@ -111,7 +111,7 @@ impl<T: std::io::Read> ZeoIter<T> {
 fn pre_parse(mut reader: &mut dyn std::io::Read)
              -> Result<(i64, String)> {
     let array_size =
-        rmp::decode::read_array_size(&mut reader).context("get mess size")?;
+        rmp::decode::read_array_len(&mut reader).context("get mess size")?;
     if array_size != 3 {
         return Err(anyhow!("Invalid message size. Expect 3, got {}", array_size))?;
     }
@@ -127,9 +127,9 @@ fn parse_message(mut reader: &mut dyn std::io::Read) -> Result<Zeo> {
         "loadBefore" => {
             let (oid, before): (ByteBuf, ByteBuf) =
                 decode!(&mut reader, "decoding loadBefore oid")?;
-            let oid = util::read8(&mut (&*oid)).context("loadBefore oid")?;
+            let oid = util::read8(&mut oid.as_slice()).context("loadBefore oid")?;
             let before =
-                util::read8(&mut (&*before))
+                util::read8(&mut before.as_slice())
                 .context("loadBefore before")?;
             Zeo::LoadBefore(id, oid, before)
         },
@@ -143,9 +143,9 @@ fn parse_message(mut reader: &mut dyn std::io::Read) -> Result<Zeo> {
         "storea" => {
             let (oid, committed, data, txn): (ByteBuf, ByteBuf, ByteBuf, u64) =
                 decode!(&mut reader, "decoding storea")?;
-            let oid = util::read8(&mut (&*oid)).context("storea oid")?;
+            let oid = util::read8(&mut oid.as_slice()).context("storea oid")?;
             let committed =
-                util::read8(&mut (&*committed))
+                util::read8(&mut committed.as_slice())
                 .context("storea committed")?;
             Zeo::Storea(oid, committed, data.to_vec(), txn)
         },
